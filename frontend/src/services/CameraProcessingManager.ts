@@ -179,6 +179,7 @@ export class CameraProcessingManager {
         };
 
         this.cameras.set(deviceId, camera);
+        this.startProcessing(deviceId); // Start processing immediately for new device
       }
 
       // Update mappings
@@ -195,11 +196,6 @@ export class CameraProcessingManager {
         lastThreatTime: 0,
         statusTimeout: null
       });
-
-      // Ensure processing is started for this device
-      if (!camera.processingInterval) {
-        this.startProcessing(deviceId);
-      }
 
     } catch (error) {
       console.error(`Error registering camera ${cameraId}:`, error);
