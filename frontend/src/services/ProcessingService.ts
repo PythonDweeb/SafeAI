@@ -1,7 +1,7 @@
 // Service for handling frame processing through the backend
 export class ProcessingService {
   private static instance: ProcessingService;
-  private baseUrl: string = 'http://localhost:8000';
+  private readonly API_BASE_URL = 'http://localhost:8000/api';
 
   private constructor() {}
 
@@ -13,17 +13,9 @@ export class ProcessingService {
   }
 
   // Process a single frame through the backend
-  public async processFrame(imageData: string): Promise<{
-    processed_image: string;
-    threats: Array<{
-      type: string;
-      confidence: number;
-      bbox: [number, number, number, number];
-    }>;
-    timestamp: number;
-  }> {
+  public async processFrame(imageData: string, cameraId: string): Promise<any> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/detect`, {
+      const response = await fetch(`${this.API_BASE_URL}/detect/${cameraId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -35,8 +27,8 @@ export class ProcessingService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      return data;
+      const result = await response.json();
+      return result;
     } catch (error) {
       console.error('Error processing frame:', error);
       throw error;
@@ -45,6 +37,20 @@ export class ProcessingService {
 
   // Convert canvas to base64
   public canvasToBase64(canvas: HTMLCanvasElement): string {
-    return canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+    return canvas.toDataURL('image/jpeg').split(',')[1];
+  }
+
+  public async checkHealth(cameraId: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.API_BASE_URL}/health/${cameraId}`);
+      if (!response.ok) {
+        return false;
+      }
+      const data = await response.json();
+      return data.status === 'healthy' && data.model_loaded;
+    } catch (error) {
+      console.error('Error checking health:', error);
+      return false;
+    }
   }
 } 

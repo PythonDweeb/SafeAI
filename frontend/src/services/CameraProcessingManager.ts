@@ -15,6 +15,7 @@ interface CameraProcessingInfo {
     currentStatus: CameraStatus;
     lastThreatTime: number;
     statusTimeout: NodeJS.Timeout | null;
+    lastProcessedFrame?: string;
   }>;
 }
 
@@ -231,45 +232,56 @@ export class CameraProcessingManager {
     const camera = this.cameras.get(deviceId);
     if (!camera) return;
 
-    // Clear any existing processing interval
-    this.stopProcessing(deviceId);
+    // Clear any existing processing
+    if (camera.processingInterval) {
+      clearTimeout(camera.processingInterval);
+      camera.processingInterval = null;
+    }
 
     const processFrame = async () => {
       const now = Date.now();
       if (now - camera.lastProcessedTime < this.PROCESSING_INTERVAL) return;
 
       try {
-        // Ensure camera is still registered and streaming
         if (!this.cameras.has(deviceId) || !camera.stream) {
           this.stopProcessing(deviceId);
           return;
         }
 
-        // Set canvas dimensions to match video
         camera.canvas.width = camera.videoElement.videoWidth;
         camera.canvas.height = camera.videoElement.videoHeight;
 
-        // Draw the current frame to canvas
         const context = camera.canvas.getContext('2d');
         if (!context) return;
         context.drawImage(camera.videoElement, 0, 0, camera.canvas.width, camera.canvas.height);
 
-        // Process the frame
         const imageData = this.processingService.canvasToBase64(camera.canvas);
-        const result = await this.processingService.processFrame(imageData);
 
-        // Update status based on threats
-        if (result.threats.length > 0) {
-          const highestThreat = result.threats.sort((a, b) => b.confidence - a.confidence)[0];
-          const newStatus: CameraStatus = 
-            highestThreat.confidence > 0.8 ? 'HIGH' :
-            highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
-          this.updateCameraStatus(deviceId, newStatus);
-        } else {
-          // Only update to NORMAL if we have active cameras on this device
-          const activeCameras = this.deviceToCameras.get(deviceId);
-          if (activeCameras && activeCameras.size > 0) {
-            this.updateCameraStatus(deviceId, 'NORMAL');
+        // Process frame for each camera using this device
+        const activeCameras = this.deviceToCameras.get(deviceId);
+        if (activeCameras && activeCameras.size > 0) {
+          for (const cameraId of activeCameras) {
+            try {
+              const result = await this.processingService.processFrame(imageData, cameraId);
+              
+              if (result.threats.length > 0) {
+                const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
+                const newStatus: CameraStatus = 
+                  highestThreat.confidence > 0.8 ? 'HIGH' :
+                  highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
+                this.updateCameraStatus(deviceId, newStatus);
+                
+                // Store the processed frame with threat boxes for this camera
+                const nodeStatus = camera.nodeStatuses.get(cameraId);
+                if (nodeStatus) {
+                  nodeStatus.lastProcessedFrame = result.processed_image;
+                }
+              } else {
+                this.updateCameraStatus(deviceId, 'NORMAL');
+              }
+            } catch (error) {
+              console.error(`Error processing frame for camera ${cameraId}:`, error);
+            }
           }
         }
 
@@ -279,7 +291,6 @@ export class CameraProcessingManager {
       }
     };
 
-    // Start continuous processing
     const process = () => {
       if (!this.cameras.has(deviceId)) {
         this.stopProcessing(deviceId);
@@ -303,12 +314,19 @@ export class CameraProcessingManager {
   }
 
   public getProcessedFrame(cameraId: string): string | null {
-    // Get the device this camera is using
     const deviceId = this.cameraToDevice.get(cameraId);
     if (!deviceId) return null;
 
     const camera = this.cameras.get(deviceId);
     if (!camera || !camera.processingInterval) return null;
+
+    // Return the last processed frame with threat boxes if available
+    const nodeStatus = camera.nodeStatuses.get(cameraId);
+    if (nodeStatus?.lastProcessedFrame) {
+      return nodeStatus.lastProcessedFrame;
+    }
+
+    // Fallback to current canvas if no processed frame
     return camera.canvas.toDataURL('image/jpeg');
   }
 } 

@@ -23,17 +23,34 @@ app = Flask(__name__)
 CORS(app)
 
 
-# Initialize threat detection system
-threat_detector = ThreatDetectionSystem()
+# Initialize threat detection systems for each camera
+threat_detectors = {
+    "phhs-cam1": ThreatDetectionSystem(),
+    "phhs-cam2": ThreatDetectionSystem(),
+    "phhs-cam3": ThreatDetectionSystem(),
+    "phhs-cam4": ThreatDetectionSystem(),
+    "phhs-cam5": ThreatDetectionSystem(),
+    "phhs-cam6": ThreatDetectionSystem(),
+    "lahs-cam1": ThreatDetectionSystem(),
+    "lahs-cam2": ThreatDetectionSystem(),
+    "lahs-cam3": ThreatDetectionSystem(),
+    "lahs-cam4": ThreatDetectionSystem(),
+    "lahs-cam5": ThreatDetectionSystem(),
+    "lahs-cam6": ThreatDetectionSystem(),
+}
 
 
-@app.route('/api/detect', methods=['POST'])
-def detect_threats():
-   """Endpoint to process a single frame and detect threats"""
+@app.route('/api/detect/<camera_id>', methods=['POST'])
+def detect_threats(camera_id):
+   """Endpoint to process a single frame and detect threats for a specific camera"""
    try:
+       if camera_id not in threat_detectors:
+           logger.error(f"Invalid camera ID: {camera_id}")
+           return jsonify({'error': 'Invalid camera ID'}), 400
+
        # Get image data from request
        data = request.get_json()
-       logger.info("Received request with data keys: %s", list(data.keys()) if data else "No data")
+       logger.info(f"Received request for camera {camera_id} with data keys: %s", list(data.keys()) if data else "No data")
        
        if not data or 'image' not in data:
            logger.error("No image data provided in request")
@@ -41,12 +58,12 @@ def detect_threats():
 
        # Log image data size
        image_data = data['image']
-       logger.info("Received image data of length: %d", len(image_data))
+       logger.info(f"Received image data of length: %d for camera {camera_id}", len(image_data))
 
-       # Process the image using the threat detector
-       logger.info("Starting image processing...")
-       processed_image, threats = threat_detector.process_base64_image(image_data)
-       logger.info("Processing complete. Found %d threats", len(threats))
+       # Process the image using the specific camera's threat detector
+       logger.info(f"Starting image processing for camera {camera_id}...")
+       processed_image, threats = threat_detectors[camera_id].process_base64_image(image_data)
+       logger.info(f"Processing complete for camera {camera_id}. Found %d threats", len(threats))
        
        # Prepare response
        response = {
@@ -59,17 +76,21 @@ def detect_threats():
 
 
    except Exception as e:
-       logger.error(f"Error processing request: {e}", exc_info=True)
+       logger.error(f"Error processing request for camera {camera_id}: {e}", exc_info=True)
        return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-   """Health check endpoint"""
+@app.route('/api/health/<camera_id>', methods=['GET'])
+def health_check(camera_id):
+   """Health check endpoint for a specific camera"""
+   if camera_id not in threat_detectors:
+       return jsonify({'error': 'Invalid camera ID'}), 400
+       
+   detector = threat_detectors[camera_id]
    return jsonify({
        'status': 'healthy',
-       'model_loaded': threat_detector.model is not None,
-       'device': threat_detector.device,
+       'model_loaded': detector.model is not None,
+       'device': detector.device,
        'timestamp': time.time()
    })
 
@@ -79,9 +100,10 @@ if __name__ == '__main__':
    try:
        app.run(host='0.0.0.0', port=port, debug=True)
    finally:
-       # Cleanup resources
-       if hasattr(threat_detector, 'model'):
-           del threat_detector.model
+       # Cleanup resources for all detectors
+       for detector in threat_detectors.values():
+           if hasattr(detector, 'model'):
+               del detector.model
        if torch.cuda.is_available():
            torch.cuda.empty_cache()
 

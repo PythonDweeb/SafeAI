@@ -88,7 +88,7 @@ const CameraView: React.FC<CameraViewProps> = ({
 
       processingRef.current = true;
       const imageData = processingService.canvasToBase64(canvasRef.current);
-      const result = await processingService.processFrame(imageData);
+      const result = await processingService.processFrame(imageData, cameraId);
       
       // Always update threats and status
       setThreats(result.threats);
@@ -100,7 +100,7 @@ const CameraView: React.FC<CameraViewProps> = ({
       
       // Update status based on threats
       if (result.threats.length > 0) {
-        const highestThreat = result.threats.sort((a, b) => b.confidence - a.confidence)[0];
+        const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
         const newStatus = highestThreat.confidence > 0.8 ? 'HIGH' :
                          highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
         onStatusUpdate(newStatus);
