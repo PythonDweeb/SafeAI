@@ -49,7 +49,7 @@ class ThreatDetectionSystem:
            # Set CUDA device
            torch.cuda.set_device(0)
            # Aggressive settings for CUDA
-           self.min_process_interval = 0.5
+           self.min_process_interval = 0.1
            self.cache_timeout = 0.5
            self.process_every_n_frames = 1
            self.detection_timeout = 1.0
