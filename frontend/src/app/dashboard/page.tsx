@@ -8,6 +8,7 @@ import ThreatItem, { ThreatItemProps } from '@/components/ThreatItem';
 import MapView from '@/components/MapView';
 import CameraView from '@/components/CameraView';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CameraProcessingManager } from '@/services/CameraProcessingManager';
 
 // Define the camera info type
 type CameraInfo = {
@@ -16,39 +17,38 @@ type CameraInfo = {
   status: "NORMAL" | "HIGH" | "MEDIUM" | "LOW";
 };
 
+// Define all camera IDs with NORMAL status
+const ALL_CAMERAS = {
+  "phhs-cam1": { name: "Main Entrance", location: "Piedmont Hills HS - Main Building", status: "NORMAL" as const },
+  "phhs-cam2": { name: "Gymnasium", location: "Piedmont Hills HS - Gym", status: "NORMAL" as const },
+  "phhs-cam3": { name: "Parking Lot", location: "Piedmont Hills HS - North Lot", status: "NORMAL" as const },
+  "phhs-cam4": { name: "Science Building", location: "Piedmont Hills HS - Science Wing", status: "NORMAL" as const },
+  "phhs-cam5": { name: "Cafeteria", location: "Piedmont Hills HS - Cafeteria", status: "NORMAL" as const },
+  "phhs-cam6": { name: "Library", location: "Piedmont Hills HS - Library", status: "NORMAL" as const },
+};
+
 // School camera info mapping
 const SCHOOL_CAMERA_INFO = {
-  "Piedmont Hills High School": {
-    "phhs-cam1": { name: "Main Entrance", location: "Piedmont Hills HS - Main Building", status: "NORMAL" as const },
-    "phhs-cam2": { name: "Gymnasium", location: "Piedmont Hills HS - Gym", status: "HIGH" as const },
-    "phhs-cam3": { name: "Parking Lot", location: "Piedmont Hills HS - North Lot", status: "MEDIUM" as const },
-    "phhs-cam4": { name: "Science Building", location: "Piedmont Hills HS - Science Wing", status: "LOW" as const },
-    "phhs-cam5": { name: "Cafeteria", location: "Piedmont Hills HS - Cafeteria", status: "NORMAL" as const },
-    "phhs-cam6": { name: "Library", location: "Piedmont Hills HS - Library", status: "NORMAL" as const },
-  },
+  "Piedmont Hills High School": ALL_CAMERAS,
   "Los Altos High School": {
     "lahs-cam1": { name: "Main Entrance", location: "Los Altos HS - Main Building", status: "NORMAL" as const },
     "lahs-cam2": { name: "Gymnasium", location: "Los Altos HS - Gym", status: "NORMAL" as const },
-    "lahs-cam3": { name: "Parking Lot", location: "Los Altos HS - East Lot", status: "HIGH" as const },
-    "lahs-cam4": { name: "Science Building", location: "Los Altos HS - Science Wing", status: "MEDIUM" as const },
-    "lahs-cam5": { name: "Cafeteria", location: "Los Altos HS - Cafeteria", status: "LOW" as const },
+    "lahs-cam3": { name: "Parking Lot", location: "Los Altos HS - East Lot", status: "NORMAL" as const },
+    "lahs-cam4": { name: "Science Building", location: "Los Altos HS - Science Wing", status: "NORMAL" as const },
+    "lahs-cam5": { name: "Cafeteria", location: "Los Altos HS - Cafeteria", status: "NORMAL" as const },
     "lahs-cam6": { name: "Football Field", location: "Los Altos HS - Athletic Field", status: "NORMAL" as const },
   }
 };
 
-// Mock threat data for each school
-const SCHOOL_THREATS = {
-  "Piedmont Hills High School": [
-    { id: 'phhs-threat1', cameraId: 'phhs-cam2', location: 'Gymnasium', timestamp: '5m ago', status: 'HIGH' as const },
-    { id: 'phhs-threat2', cameraId: 'phhs-cam3', location: 'Parking Lot', timestamp: '8m ago', status: 'MEDIUM' as const },
-    { id: 'phhs-threat3', cameraId: 'phhs-cam4', location: 'Science Building', timestamp: '12m ago', status: 'LOW' as const },
-  ],
-  "Los Altos High School": [
-    { id: 'lahs-threat1', cameraId: 'lahs-cam3', location: 'Parking Lot', timestamp: '3m ago', status: 'HIGH' as const },
-    { id: 'lahs-threat2', cameraId: 'lahs-cam4', location: 'Science Building', timestamp: '7m ago', status: 'MEDIUM' as const },
-    { id: 'lahs-threat3', cameraId: 'lahs-cam5', location: 'Cafeteria', timestamp: '14m ago', status: 'LOW' as const },
-  ]
-};
+// Initial threats - all NORMAL status
+const INITIAL_THREATS = [
+  { id: 'phhs-cam1', cameraId: 'phhs-cam1', location: 'Main Entrance', timestamp: 'Now', status: 'NORMAL' as const },
+  { id: 'phhs-cam2', cameraId: 'phhs-cam2', location: 'Gymnasium', timestamp: 'Now', status: 'NORMAL' as const },
+  { id: 'phhs-cam3', cameraId: 'phhs-cam3', location: 'Parking Lot', timestamp: 'Now', status: 'NORMAL' as const },
+  { id: 'phhs-cam4', cameraId: 'phhs-cam4', location: 'Science Building', timestamp: 'Now', status: 'NORMAL' as const },
+  { id: 'phhs-cam5', cameraId: 'phhs-cam5', location: 'Cafeteria', timestamp: 'Now', status: 'NORMAL' as const },
+  { id: 'phhs-cam6', cameraId: 'phhs-cam6', location: 'Library', timestamp: 'Now', status: 'NORMAL' as const }
+];
 
 // Get camera info from camera ID
 const getCameraInfo = (schoolName: string, cameraId: string): CameraInfo | undefined => {
@@ -61,13 +61,26 @@ const getCameraInfo = (schoolName: string, cameraId: string): CameraInfo | undef
   return undefined;
 };
 
+type SchoolName = "Piedmont Hills High School" | "Los Altos High School";
+
 export default function Dashboard() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState(''); // Empty by default
   const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState('');
-  const [selectedSchool, setSelectedSchool] = useState("Piedmont Hills High School");
-  const [activeThreats, setActiveThreats] = useState(SCHOOL_THREATS[selectedSchool as keyof typeof SCHOOL_THREATS]);
+  const [selectedSchool, setSelectedSchool] = useState<SchoolName>("Piedmont Hills High School");
+  const [activeThreats, setActiveThreats] = useState(INITIAL_THREATS);
+  const [cameraStatuses, setCameraStatuses] = useState<Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'>>(() => {
+    const initial: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
+    // Initialize all cameras for both schools
+    Object.keys(SCHOOL_CAMERA_INFO["Piedmont Hills High School"]).forEach(cameraId => {
+      initial[cameraId] = 'NORMAL';
+    });
+    Object.keys(SCHOOL_CAMERA_INFO["Los Altos High School"]).forEach(cameraId => {
+      initial[cameraId] = 'NORMAL';
+    });
+    return initial;
+  });
   
   // Add state for security personnel count
   const [numSecurity, setNumSecurity] = useState<number>(1);
@@ -80,6 +93,34 @@ export default function Dashboard() {
   const [rightSidebarExpanded, setRightSidebarExpanded] = useState(true);
   // Add state for emergency actions
   const [emergencyMode, setEmergencyMode] = useState(false);
+  
+  // New state for camera assignments and available devices
+  const [cameraAssignments, setCameraAssignments] = useState<Record<string, string | null>>(() => {
+    const saved = localStorage.getItem('cameraAssignments');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
+  
+  const processingManager = CameraProcessingManager.getInstance();
+  
+  // Get available cameras on mount
+  useEffect(() => {
+    const getDevices = async () => {
+      try {
+        // First request camera permission
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach(track => track.stop());
+        
+        // Now enumerate devices
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        setAvailableDevices(videoDevices);
+      } catch (error) {
+        console.error('Error getting video devices:', error);
+      }
+    };
+    getDevices();
+  }, []);
   
   // Update time every minute
   useEffect(() => {
@@ -105,7 +146,18 @@ export default function Dashboard() {
   
   // Update threats when school changes
   useEffect(() => {
-    setActiveThreats(SCHOOL_THREATS[selectedSchool as keyof typeof SCHOOL_THREATS]);
+    setActiveThreats(INITIAL_THREATS);
+  }, [selectedSchool]);
+  
+  // Update camera statuses when school changes
+  useEffect(() => {
+    // Reset all camera statuses to NORMAL when school changes
+    const newStatuses: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
+    Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
+      // Only keep non-NORMAL status if camera is assigned
+      newStatuses[cameraId] = cameraAssignments[cameraId] ? (cameraStatuses[cameraId] || 'NORMAL') : 'NORMAL';
+    });
+    setCameraStatuses(newStatuses);
   }, [selectedSchool]);
   
   const handleThreatClick = (id: string) => {
@@ -119,14 +171,14 @@ export default function Dashboard() {
   
   // Handler for clicking on a map marker - just highlights the camera without showing view
   const handleMarkerClick = (cameraId: string) => {
-    console.log("Marker clicked:", cameraId);
+    // Only update the highlighted camera for path-finding
     setHighlightedCamera(cameraId);
   };
   
   // Handler for "View Camera" button in popup - shows the camera view
   const handleViewCameraClick = (cameraId: string) => {
-    console.log("View Camera button clicked:", cameraId);
     setSelectedCamera(cameraId);
+    setHighlightedCamera(cameraId);
     setForceOpenCamera(true);
   };
   
@@ -143,7 +195,7 @@ export default function Dashboard() {
   };
   
   const handleBuildingChange = (buildingName: string) => {
-    setSelectedSchool(buildingName);
+    setSelectedSchool(buildingName as SchoolName);
     // Reset selected camera when school changes
     setSelectedCamera(null);
     setHighlightedCamera(null);
@@ -169,7 +221,105 @@ export default function Dashboard() {
   };
 
   // Get camera info for the selected camera
-  const cameraInfo = highlightedCamera ? getCameraInfo(selectedSchool, highlightedCamera) : undefined;
+  const selectedCameraInfo = selectedCamera ? getCameraInfo(selectedSchool, selectedCamera) : undefined;
+
+  const handleCameraStatusUpdate = (status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW') => {
+    if (selectedCamera) {
+      setCameraStatuses(prev => ({
+        ...prev,
+        [selectedCamera]: status
+      }));
+    }
+  };
+
+  const handleCameraAssignment = async (cameraId: string, deviceId: string | null) => {
+    const newAssignments = { ...cameraAssignments };
+    
+    // If there was a previous assignment, unregister it
+    if (cameraAssignments[cameraId]) {
+      processingManager.unregisterCamera(cameraId);
+    }
+    
+    // Update assignments and status
+    if (deviceId) {
+      newAssignments[cameraId] = deviceId;
+      // Register camera for continuous processing
+      await processingManager.registerCamera(
+        cameraId,
+        deviceId,
+        (status) => {
+          setCameraStatuses(prev => ({
+            ...prev,
+            [cameraId]: status
+          }));
+        }
+      );
+    } else {
+      // When camera is unassigned, remove it from assignments and set status to NORMAL
+      delete newAssignments[cameraId];
+      setCameraStatuses(prev => ({
+        ...prev,
+        [cameraId]: 'NORMAL'
+      }));
+    }
+    
+    setCameraAssignments(newAssignments);
+    localStorage.setItem('cameraAssignments', JSON.stringify(newAssignments));
+  };
+
+  // Load saved camera assignments on mount
+  useEffect(() => {
+    const savedAssignments = localStorage.getItem('cameraAssignments');
+    if (savedAssignments) {
+      const assignments = JSON.parse(savedAssignments);
+      setCameraAssignments(assignments);
+      
+      // Initialize all cameras to NORMAL status
+      const initialStatuses: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
+      Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
+        initialStatuses[cameraId] = 'NORMAL';
+      });
+      
+      // Start processing only for assigned cameras
+      Object.entries(assignments).forEach(([cameraId, deviceId]) => {
+        if (deviceId) {
+          processingManager.registerCamera(
+            cameraId,
+            deviceId as string,
+            (status) => {
+              setCameraStatuses(prev => ({
+                ...prev,
+                [cameraId]: status
+              }));
+            }
+          );
+        }
+      });
+      
+      setCameraStatuses(initialStatuses);
+    }
+  }, []);
+
+  // Clean up all camera processing on unmount
+  useEffect(() => {
+    return () => {
+      Object.keys(cameraAssignments).forEach(cameraId => {
+        processingManager.unregisterCamera(cameraId);
+      });
+    };
+  }, []);
+
+  // Update event listener for camera assignments
+  useEffect(() => {
+    const handleCameraAssigned = (event: CustomEvent<{ cameraId: string; deviceId: string | null }>) => {
+      handleCameraAssignment(event.detail.cameraId, event.detail.deviceId);
+    };
+
+    window.addEventListener('cameraAssigned', handleCameraAssigned as EventListener);
+    return () => {
+      window.removeEventListener('cameraAssigned', handleCameraAssigned as EventListener);
+    };
+  }, [cameraAssignments]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-white">
@@ -197,31 +347,20 @@ export default function Dashboard() {
           </div>
           
           <div className="flex-1 overflow-y-auto p-3 bg-gray-50 transition-all duration-300">
-            {activeThreats.length > 0 ? (
-              <div className="space-y-3">
-                {activeThreats.map((threat) => (
-                  <ThreatItem 
-                    key={threat.id}
-                    {...threat}
-                    onThreatClick={handleThreatClick}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500 p-6 text-center animate-fadeIn">
-                <div className="w-20 h-20 mb-5 flex items-center justify-center rounded-full bg-green-100">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-medium mb-2 text-gray-700">All Clear</h3>
-                <p className="text-sm mb-4 text-gray-600">No active threats detected at this time.</p>
-                <div className="flex items-center justify-center text-sm text-green-600 font-medium">
-                  <div className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></div>
-                  All systems operating normally
-                </div>
-              </div>
-            )}
+            {/* Active Cameras */}
+            <div className="space-y-3">
+              {Object.entries(SCHOOL_CAMERA_INFO[selectedSchool]).map(([cameraId, info]) => (
+                <ThreatItem 
+                  key={cameraId}
+                  id={cameraId}
+                  cameraId={cameraId}
+                  location={info.name}
+                  timestamp="Now"
+                  status={cameraStatuses[cameraId] || 'NORMAL'}
+                  onThreatClick={handleThreatClick}
+                />
+              ))}
+            </div>
           </div>
           
           <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-t border-blue-100">
@@ -252,6 +391,8 @@ export default function Dashboard() {
             onViewCameraClick={handleViewCameraClick}
             selectedSchool={selectedSchool}
             highlightedCamera={highlightedCamera}
+            cameraAssignments={cameraAssignments}
+            cameraStatuses={cameraStatuses}
           />
           
           {/* New right sidebar for camera info and controls */}
@@ -276,7 +417,7 @@ export default function Dashboard() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.2 }}
                       >
-                        {cameraInfo?.name || 'Camera Feed'}
+                        {getCameraInfo(selectedSchool, highlightedCamera)?.name || 'Camera Feed'}
                       </motion.span>
                     </h2>
                     <motion.button
@@ -302,7 +443,7 @@ export default function Dashboard() {
                       transition={{ delay: 0.3 }}
                       className="text-sm text-gray-600"
                     >
-                      {cameraInfo?.location || 'Unknown location'}
+                      {getCameraInfo(selectedSchool, highlightedCamera)?.location || 'Unknown location'}
                     </motion.p>
                   </div>
                 </div>
@@ -316,13 +457,13 @@ export default function Dashboard() {
                       animate={{ scale: 1, opacity: 1 }}
                       transition={{ type: "spring", stiffness: 400, damping: 10 }}
                       className={`px-2.5 py-1 text-xs font-medium rounded-full shadow-sm ${
-                        cameraInfo?.status === 'HIGH' ? 'bg-red-100 text-red-800 shadow-red-500/10' :
-                        cameraInfo?.status === 'MEDIUM' ? 'bg-orange-100 text-orange-800 shadow-orange-500/10' :
-                        cameraInfo?.status === 'LOW' ? 'bg-yellow-100 text-yellow-800 shadow-yellow-500/10' :
+                        cameraStatuses[highlightedCamera] === 'HIGH' ? 'bg-red-100 text-red-800 shadow-red-500/10' :
+                        cameraStatuses[highlightedCamera] === 'MEDIUM' ? 'bg-orange-100 text-orange-800 shadow-orange-500/10' :
+                        cameraStatuses[highlightedCamera] === 'LOW' ? 'bg-yellow-100 text-yellow-800 shadow-yellow-500/10' :
                         'bg-green-100 text-green-800 shadow-green-500/10'
                       }`}
                     >
-                      {cameraInfo?.status || 'NORMAL'}
+                      {cameraStatuses[highlightedCamera] || 'NORMAL'}
                     </motion.span>
                   </div>
                   
@@ -337,35 +478,17 @@ export default function Dashboard() {
                 {/* Camera feeds and controls */}
                 <div className="p-4 space-y-4 overflow-y-auto bg-gray-50/50" style={{ height: 'calc(100% - 135px)' }}>
                   {/* Live Camera Feed */}
-                  <div className="rounded-lg overflow-hidden shadow-lg border border-gray-200 bg-white transition-all hover:shadow-xl">
-                    <div className="bg-gradient-to-r from-gray-100 to-gray-50 px-3 py-2 border-b border-gray-200 flex items-center justify-between">
-                      <div className="flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        <h3 className="text-sm font-medium text-gray-700">Live Feed</h3>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <motion.div 
-                          animate={{ scale: [1, 1.2, 1], opacity: [0.8, 1, 0.8] }}
-                          transition={{ repeat: Infinity, duration: 2 }}
-                          className="flex items-center"
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-red-500 mr-1"></div>
-                          <span className="text-xs text-gray-500">LIVE</span>
-                        </motion.div>
-                      </div>
-                    </div>
-                    <div className="aspect-video bg-black relative p-0.5">
-                      {/* Always show camera view instead of button */}
-                      <div className="rounded-sm overflow-hidden shadow-inner h-full">
-                        <CameraView 
-                          cameraId={highlightedCamera} 
-                          onClose={() => setSelectedCamera(null)}
-                          onSendSecurity={handleSendSecurity}
-                          cameraInfo={cameraInfo}
-                        />
-                      </div>
+                  <div className="rounded-lg overflow-hidden shadow-lg border border-gray-200 bg-white transition-all hover:shadow-xl h-[calc(100vh-280px)]">
+                    <div className="h-full bg-black relative">
+                      <CameraView 
+                        cameraId={highlightedCamera} 
+                        onClose={() => setHighlightedCamera(null)}
+                        onSendSecurity={handleSendSecurity}
+                        onStatusUpdate={handleCameraStatusUpdate}
+                        cameraInfo={getCameraInfo(selectedSchool, highlightedCamera)}
+                        assignedDeviceId={highlightedCamera ? cameraAssignments[highlightedCamera] : null}
+                        isFromThreatMonitor={false}
+                      />
                     </div>
                   </div>
                   
@@ -507,7 +630,7 @@ export default function Dashboard() {
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
                       <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
                     </svg>
-                      {(cameraInfo as CameraInfo)?.name || 'Camera Feed'} - Full View
+                      {(selectedCameraInfo as CameraInfo)?.name || 'Camera Feed'} - Full View
                   </h2>
                   <button 
                     onClick={() => setSelectedCamera(null)}
@@ -520,10 +643,13 @@ export default function Dashboard() {
                 </div>
                 <div className="p-6 flex-1 overflow-auto">
                   <CameraView 
-                      cameraId={selectedCamera} 
+                    cameraId={selectedCamera}
                     onClose={() => setSelectedCamera(null)}
                     onSendSecurity={handleSendSecurity}
-                    cameraInfo={cameraInfo}
+                    onStatusUpdate={handleCameraStatusUpdate}
+                    cameraInfo={selectedCamera ? getCameraInfo(selectedSchool, selectedCamera) : undefined}
+                    assignedDeviceId={selectedCamera ? cameraAssignments[selectedCamera] : null}
+                    isFromThreatMonitor={true}
                   />
                 </div>
                 </motion.div>

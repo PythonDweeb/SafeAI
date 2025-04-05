@@ -2,14 +2,16 @@ import React from 'react';
 
 export interface ThreatItemProps {
   id: string;
+  cameraId: string;
   location: string;
   timestamp: string;
-  status: 'HIGH' | 'MEDIUM' | 'LOW';
+  status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   onThreatClick: (id: string) => void;
 }
 
 const ThreatItem: React.FC<ThreatItemProps> = ({ 
   id, 
+  cameraId, 
   location, 
   timestamp, 
   status, 
@@ -51,40 +53,52 @@ const ThreatItem: React.FC<ThreatItemProps> = ({
 
   return (
     <div 
-      className="flex items-center p-4 my-2 rounded-xl border border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-200 shadow-sm hover:shadow-md card animate-slideInUp"
+      className={`
+        p-4 rounded-lg shadow-lg border transition-all cursor-pointer
+        hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]
+        ${status === 'HIGH' ? 'bg-red-50 border-red-200' : 
+          status === 'MEDIUM' ? 'bg-orange-50 border-orange-200' : 
+          status === 'LOW' ? 'bg-yellow-50 border-yellow-200' :
+          'bg-green-50 border-green-200'} 
+      `}
       onClick={() => onThreatClick(id)}
     >
-      <div className="mr-4">
-        {getStatusIcon()}
-      </div>
-      <div className="flex-1">
-        <div className="flex justify-between items-center mb-1">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{location}</h3>
-          <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center">
+          {status === 'HIGH' ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            {timestamp}
-          </span>
+          ) : status === 'MEDIUM' ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-orange-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          ) : status === 'LOW' ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+          )}
+          <span className="font-medium text-gray-800">{location}</span>
         </div>
-        <div className="flex mt-1 items-center space-x-2">
-          <div className="bg-gray-100 dark:bg-gray-700 rounded-md px-2 py-0.5 text-xs text-gray-600 dark:text-gray-300 font-medium">{id}</div>
-          <div className={`status-badge status-${status.toLowerCase()}`}>
-            <div className="flex items-center">
-              <div className={`h-1.5 w-1.5 rounded-full bg-current mr-1`}></div>
-              {status}
-            </div>
-          </div>
-        </div>
+        <span className={`
+          px-2 py-1 rounded-full text-xs font-medium
+          ${status === 'HIGH' ? 'bg-red-100 text-red-800' : 
+            status === 'MEDIUM' ? 'bg-orange-100 text-orange-800' : 
+            status === 'LOW' ? 'bg-yellow-100 text-yellow-800' :
+            'bg-green-100 text-green-800'}
+        `}>
+          {status}
+        </span>
       </div>
-
-      <div className="ml-2">
-        <button className="text-blue-500 hover:text-blue-600 transition-colors">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-            <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-          </svg>
-        </button>
+      <div className="flex items-center text-xs text-gray-500">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        {timestamp}
       </div>
     </div>
   );
