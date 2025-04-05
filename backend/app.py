@@ -20,47 +20,58 @@ logger = logging.getLogger(__name__)
 
 
 app = Flask(__name__)
-CORS(app)
+# Configure CORS with specific settings
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000"],  # Allow requests from frontend
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"],
+    }
+})
 
 
 # Initialize threat detection system
 threat_detector = ThreatDetectionSystem()
 
 
-@app.route('/api/detect', methods=['POST'])
+@app.route('/api/detect', methods=['POST', 'OPTIONS'])
 def detect_threats():
-   """Endpoint to process a single frame and detect threats"""
-   try:
-       # Get image data from request
-       data = request.get_json()
-       logger.info("Received request with data keys: %s", list(data.keys()) if data else "No data")
-       
-       if not data or 'image' not in data:
-           logger.error("No image data provided in request")
-           return jsonify({'error': 'No image data provided'}), 400
+    """Endpoint to process a single frame and detect threats"""
+    # Handle preflight requests
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return response
 
-       # Log image data size
-       image_data = data['image']
-       logger.info("Received image data of length: %d", len(image_data))
+    try:
+        # Get image data from request
+        data = request.get_json()
+        logger.info("Received POST request with data keys: %s", list(data.keys()) if data else "No data")
+        
+        if not data or 'image' not in data:
+            logger.error("No image data provided in request")
+            return jsonify({'error': 'No image data provided'}), 400
 
-       # Process the image using the threat detector
-       logger.info("Starting image processing...")
-       processed_image, threats = threat_detector.process_base64_image(image_data)
-       logger.info("Processing complete. Found %d threats", len(threats))
-       
-       # Prepare response
-       response = {
-           'processed_image': processed_image,
-           'threats': threats,
-           'timestamp': time.time()
-       }
-       
-       return jsonify(response)
+        # Log image data size
+        image_data = data['image']
+        logger.info("Received image data of length: %d", len(image_data))
 
+        # Process the image using the threat detector
+        logger.info("Starting image processing...")
+        processed_image, threats = threat_detector.process_base64_image(image_data)
+        logger.info("Processing complete. Found %d threats", len(threats))
+        
+        # Prepare response
+        response = {
+            'processed_image': processed_image,
+            'threats': threats,
+            'timestamp': time.time()
+        }
+        
+        return jsonify(response)
 
-   except Exception as e:
-       logger.error(f"Error processing request: {e}", exc_info=True)
-       return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        logger.error(f"Error processing request: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/health', methods=['GET'])
