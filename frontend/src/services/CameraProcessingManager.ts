@@ -78,43 +78,39 @@ export class CameraProcessingManager {
       const nodeStatus = camera.nodeStatuses.get(cameraId);
       if (!nodeStatus) return;
 
-      // Only update if status has changed or if it's been long enough since last threat
-      const timeSinceLastThreat = Date.now() - nodeStatus.lastThreatTime;
-      if (newStatus !== nodeStatus.currentStatus || timeSinceLastThreat >= this.STATUS_PERSISTENCE) {
-        // Clear any existing status timeout
-        if (nodeStatus.statusTimeout) {
-          clearTimeout(nodeStatus.statusTimeout);
-          nodeStatus.statusTimeout = null;
-        }
+      // Clear any existing status timeout
+      if (nodeStatus.statusTimeout) {
+        clearTimeout(nodeStatus.statusTimeout);
+        nodeStatus.statusTimeout = null;
+      }
 
-        // Update status immediately
-        nodeStatus.currentStatus = newStatus;
-        nodeStatus.onStatusUpdate(newStatus);
+      // Update status immediately
+      nodeStatus.currentStatus = newStatus;
+      nodeStatus.onStatusUpdate(newStatus);
 
-        // Emit global status update event
-        const event = new CustomEvent('cameraStatusChanged', {
-          detail: { cameraId, status: newStatus }
-        });
-        window.dispatchEvent(event);
+      // Emit global status update event
+      const event = new CustomEvent('cameraStatusChanged', {
+        detail: { cameraId, status: newStatus }
+      });
+      window.dispatchEvent(event);
 
-        if (newStatus !== 'NORMAL') {
-          // For non-NORMAL status, update last threat time and set timeout
-          nodeStatus.lastThreatTime = Date.now();
-          nodeStatus.statusTimeout = setTimeout(() => {
-            const currentCamera = this.cameras.get(deviceId);
-            const currentNodeStatus = currentCamera?.nodeStatuses.get(cameraId);
-            if (currentNodeStatus) {
-              currentNodeStatus.currentStatus = 'NORMAL';
-              currentNodeStatus.onStatusUpdate('NORMAL');
-              currentNodeStatus.statusTimeout = null;
-              // Emit global status update event for NORMAL status
-              const normalEvent = new CustomEvent('cameraStatusChanged', {
-                detail: { cameraId, status: 'NORMAL' }
-              });
-              window.dispatchEvent(normalEvent);
-            }
-          }, this.STATUS_PERSISTENCE);
-        }
+      if (newStatus !== 'NORMAL') {
+        // For non-NORMAL status, set timeout to revert
+        nodeStatus.lastThreatTime = Date.now();
+        nodeStatus.statusTimeout = setTimeout(() => {
+          const currentCamera = this.cameras.get(deviceId);
+          const currentNodeStatus = currentCamera?.nodeStatuses.get(cameraId);
+          if (currentNodeStatus) {
+            currentNodeStatus.currentStatus = 'NORMAL';
+            currentNodeStatus.onStatusUpdate('NORMAL');
+            currentNodeStatus.statusTimeout = null;
+            // Emit global status update event for NORMAL status
+            const normalEvent = new CustomEvent('cameraStatusChanged', {
+              detail: { cameraId, status: 'NORMAL' }
+            });
+            window.dispatchEvent(normalEvent);
+          }
+        }, this.STATUS_PERSISTENCE);
       }
     });
   }
@@ -246,6 +242,9 @@ export class CameraProcessingManager {
     }
 
     const processFrame = async () => {
+      const now = Date.now();
+      if (now - camera.lastProcessedTime < this.PROCESSING_INTERVAL) return;
+
       try {
         // Ensure camera is still registered and streaming
         if (!this.cameras.has(deviceId) || !camera.stream) {
@@ -279,16 +278,11 @@ export class CameraProcessingManager {
             highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
           this.updateCameraStatus(deviceId, newStatus);
         } else {
-          // Only update to NORMAL if there are no active threats
-          const hasActiveThreats = Array.from(camera.nodeStatuses.values()).some(
-            status => status.currentStatus !== 'NORMAL' && 
-            (Date.now() - status.lastThreatTime) < this.STATUS_PERSISTENCE
-          );
-          if (!hasActiveThreats) {
-            this.updateCameraStatus(deviceId, 'NORMAL');
-          }
+          // Always update to NORMAL when no threats are detected
+          this.updateCameraStatus(deviceId, 'NORMAL');
         }
 
+        camera.lastProcessedTime = now;
       } catch (error) {
         console.error(`Error processing frame for device ${deviceId}:`, error);
       }
@@ -301,7 +295,7 @@ export class CameraProcessingManager {
         return;
       }
       processFrame();
-      camera.processingInterval = setTimeout(process, 500); // Match GPU timing of 0.5 seconds
+      camera.processingInterval = setTimeout(process, 1500); // Match backend's min_process_interval
     };
 
     process();
