@@ -1,6 +1,10 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
+IMPORTANT NOTE:
+if you are running on gpu, after installing requirements txt, remove the default torch and install the torch for CUDA with:
+-pip uninstall torch torchvision torchaudio
+-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 First, run the development server:
 
