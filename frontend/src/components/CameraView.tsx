@@ -80,6 +80,13 @@ const CameraView: React.FC<CameraViewProps> = ({
     if (now - lastProcessedTimeRef.current < PROCESSING_INTERVAL) return;
     
     try {
+      // Check if previous processing is still ongoing
+      if (processingRef.current) {
+        console.warn('Previous frame still processing, skipping this frame');
+        return;
+      }
+
+      processingRef.current = true;
       const imageData = processingService.canvasToBase64(canvasRef.current);
       const result = await processingService.processFrame(imageData);
       
@@ -104,6 +111,9 @@ const CameraView: React.FC<CameraViewProps> = ({
       lastProcessedTimeRef.current = now;
     } catch (error) {
       console.error('Error processing frame:', error);
+      setError('Error processing frame. The system might be overloaded.');
+    } finally {
+      processingRef.current = false;
     }
   };
 
@@ -196,6 +206,9 @@ const CameraView: React.FC<CameraViewProps> = ({
           stopProcessing();
         }
 
+        // Add a small delay to ensure previous stream is fully stopped
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         const newStream = await navigator.mediaDevices.getUserMedia({
           video: {
             deviceId: { exact: selectedDeviceId },
@@ -207,14 +220,23 @@ const CameraView: React.FC<CameraViewProps> = ({
         setStream(newStream);
         if (videoRef.current) {
           videoRef.current.srcObject = newStream;
-          await videoRef.current.play();
-          // Processing will start automatically via play event
+          try {
+            await videoRef.current.play();
+          } catch (playError) {
+            console.error('Error playing video:', playError);
+            setError('Error playing video stream. The camera might be in use by another application.');
+            return;
+          }
         }
         
         setError(null);
       } catch (error) {
         console.error('Error starting camera:', error);
-        setError('Error accessing camera: ' + (error as Error).message);
+        if ((error as Error).name === 'OverconstrainedError') {
+          setError('Camera is currently in use by another application. Please try again later.');
+        } else {
+          setError('Error accessing camera: ' + (error as Error).message);
+        }
       }
     };
 

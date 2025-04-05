@@ -7,6 +7,7 @@ import json
 import time
 from dotenv import load_dotenv
 from detectweapons import ThreatDetectionSystem
+import torch
 
 
 # Load environment variables
@@ -75,6 +76,13 @@ def health_check():
 
 if __name__ == '__main__':
    port = int(os.getenv('PORT', 8000))
-   app.run(host='0.0.0.0', port=port, debug=True)
+   try:
+       app.run(host='0.0.0.0', port=port, debug=True)
+   finally:
+       # Cleanup resources
+       if hasattr(threat_detector, 'model'):
+           del threat_detector.model
+       if torch.cuda.is_available():
+           torch.cuda.empty_cache()
 
 
