@@ -179,7 +179,6 @@ export class CameraProcessingManager {
         };
 
         this.cameras.set(deviceId, camera);
-        this.startProcessing(deviceId);
       }
 
       // Update mappings
@@ -196,6 +195,11 @@ export class CameraProcessingManager {
         lastThreatTime: 0,
         statusTimeout: null
       });
+
+      // Ensure processing is started for this device
+      if (!camera.processingInterval) {
+        this.startProcessing(deviceId);
+      }
 
     } catch (error) {
       console.error(`Error registering camera ${cameraId}:`, error);
@@ -242,9 +246,6 @@ export class CameraProcessingManager {
     }
 
     const processFrame = async () => {
-      const now = Date.now();
-      if (now - camera.lastProcessedTime < this.PROCESSING_INTERVAL) return;
-
       try {
         // Ensure camera is still registered and streaming
         if (!this.cameras.has(deviceId) || !camera.stream) {
@@ -281,8 +282,6 @@ export class CameraProcessingManager {
           // Always update to NORMAL when no threats are detected
           this.updateCameraStatus(deviceId, 'NORMAL');
         }
-
-        camera.lastProcessedTime = now;
       } catch (error) {
         console.error(`Error processing frame for device ${deviceId}:`, error);
       }
@@ -298,6 +297,7 @@ export class CameraProcessingManager {
       camera.processingInterval = setTimeout(process, 1500); // Match backend's min_process_interval
     };
 
+    // Start processing immediately
     process();
   }
 
