@@ -72,44 +72,87 @@ const CameraView: React.FC<CameraViewProps> = ({
     getDevices();
   }, []);
 
-  // Function to process frame through backend
-  const processFrame = async () => {
-    if (!canvasRef.current || !videoRef.current || !isStreamingRef.current) return;
-    
-    const now = Date.now();
-    if (now - lastProcessedTimeRef.current < PROCESSING_INTERVAL) return;
-    
-    try {
-      // Check if previous processing is still ongoing
-      if (processingRef.current) {
-        console.warn('Previous frame still processing, skipping this frame');
-        return;
-      }
+  // Register with processing manager when component mounts
+  useEffect(() => {
+    if (cameraId && assignedDeviceId) {
+      processingManager.registerCamera(cameraId, assignedDeviceId, (status) => {
+        setCameraStatus(status);
+        onStatusUpdate(status);
+      });
 
-      processingRef.current = true;
-      const imageData = processingService.canvasToBase64(canvasRef.current);
-      const result = await processingService.processFrame(imageData);
-      
-      // Always update threats and status
-      setThreats(result.threats);
-      
-      // Update status based on threats
-      if (result.threats.length > 0) {
-        const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
-        const newStatus = highestThreat.confidence > 0.8 ? 'HIGH' :
-                         highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
-        onStatusUpdate(newStatus);
-      } else {
-        onStatusUpdate('NORMAL');
-      }
-      
-      lastProcessedTimeRef.current = now;
-    } catch (error) {
-      console.error('Error processing frame:', error);
-      setError('Error processing frame. The system might be overloaded.');
-    } finally {
-      processingRef.current = false;
+      // Start retrieving processed frames
+      processedFrameInterval.current = setInterval(() => {
+        const processedFrame = processingManager.getProcessedFrame(cameraId);
+        if (processedFrame) {
+          setProcessedImageUrl(processedFrame);
+        }
+      }, 100); // Check for new frames every 100ms
     }
+
+    return () => {
+      if (cameraId) {
+        processingManager.unregisterCamera(cameraId);
+      }
+      if (processedFrameInterval.current) {
+        clearInterval(processedFrameInterval.current);
+      }
+    };
+  }, [cameraId, assignedDeviceId]);
+
+  // Set up video processing when stream starts
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvasRef.current = canvas;
+
+    video.addEventListener('play', () => {
+      isStreamingRef.current = true;
+      if (cameraId && assignedDeviceId) {
+        processingManager.startProcessing(cameraId);
+      }
+    });
+
+    video.addEventListener('pause', () => {
+      isStreamingRef.current = false;
+      if (cameraId) {
+        processingManager.stopProcessing(cameraId);
+      }
+    });
+
+    // Start processing if video is already playing
+    if (!video.paused) {
+      isStreamingRef.current = true;
+      if (cameraId && assignedDeviceId) {
+        processingManager.startProcessing(cameraId);
+      }
+    }
+
+    return () => {
+      if (cameraId) {
+        processingManager.stopProcessing(cameraId);
+      }
+      isStreamingRef.current = false;
+    };
+  }, [videoRef.current, cameraId, assignedDeviceId]);
+
+  // Remove old frame processing code
+  const processFrame = async () => {
+    if (!canvasRef.current || !videoRef.current || !isStreamingRef.current || !cameraId) return;
+    
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    
+    // Draw the current frame to canvas
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    
+    // Send frame to processing manager
+    const imageData = processingService.canvasToBase64(canvas);
+    processingManager.processFrame(cameraId, imageData);
   };
 
   // Continuous frame processing loop
@@ -151,36 +194,6 @@ const CameraView: React.FC<CameraViewProps> = ({
       processingTimeoutRef.current = null;
     }
   };
-
-  // Set up video processing when stream starts
-  useEffect(() => {
-    if (!videoRef.current) return;
-
-    const video = videoRef.current;
-    const canvas = document.createElement('canvas');
-    canvasRef.current = canvas;
-
-    video.addEventListener('play', () => {
-      isStreamingRef.current = true;
-      startProcessing();
-    });
-
-    video.addEventListener('pause', () => {
-      isStreamingRef.current = false;
-      stopProcessing();
-    });
-
-    // Start processing if video is already playing
-    if (!video.paused) {
-      isStreamingRef.current = true;
-      startProcessing();
-    }
-
-    return () => {
-      stopProcessing();
-      isStreamingRef.current = false;
-    };
-  }, [videoRef.current]);
 
   // Start camera stream when selected device changes
   useEffect(() => {
@@ -247,33 +260,6 @@ const CameraView: React.FC<CameraViewProps> = ({
       }
     };
   }, [selectedDeviceId]);
-
-  // Update local status when it changes through the manager
-  useEffect(() => {
-    if (!selectedDeviceId || !cameraId) return;
-
-    const registerWithManager = async () => {
-      try {
-        await processingManager.registerCamera(
-          cameraId,
-          selectedDeviceId,
-          (status) => {
-            setCameraStatus(status);
-            onStatusUpdate(status);
-          }
-        );
-      } catch (error) {
-        console.error('Error registering camera with processing manager:', error);
-        setError('Error connecting to camera processing system');
-      }
-    };
-    
-    registerWithManager();
-    
-    return () => {
-      processingManager.unregisterCamera(cameraId);
-    };
-  }, [selectedDeviceId, cameraId, onStatusUpdate]);
 
   // Update processed frame display for threat monitor view
   useEffect(() => {

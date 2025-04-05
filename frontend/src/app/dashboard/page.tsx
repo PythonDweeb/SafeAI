@@ -63,13 +63,22 @@ const getCameraInfo = (schoolName: string, cameraId: string): CameraInfo | undef
 
 type SchoolName = "Piedmont Hills High School" | "Los Altos High School";
 
+// Define the ThreatItem type
+type ThreatItem = {
+  id: string;
+  cameraId: string;
+  location: string;
+  timestamp: string;
+  status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState(''); // Empty by default
   const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState('');
   const [selectedSchool, setSelectedSchool] = useState<SchoolName>("Piedmont Hills High School");
-  const [activeThreats, setActiveThreats] = useState(INITIAL_THREATS);
+  const [activeThreats, setActiveThreats] = useState<ThreatItem[]>(INITIAL_THREATS);
   const [cameraStatuses, setCameraStatuses] = useState<Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'>>(() => {
     const initial: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
     // Initialize all cameras for both schools
@@ -160,6 +169,43 @@ export default function Dashboard() {
     setCameraStatuses(newStatuses);
   }, [selectedSchool]);
   
+  // Listen for camera status updates from the processing manager
+  useEffect(() => {
+    const updateCameraStatus = (cameraId: string, status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW') => {
+      setCameraStatuses(prev => ({
+        ...prev,
+        [cameraId]: status
+      }));
+
+      // Also update active threats
+      setActiveThreats(prev => 
+        prev.map(threat => 
+          threat.cameraId === cameraId 
+            ? { ...threat, status, timestamp: 'Now' }
+            : threat
+        )
+      );
+    };
+
+    // Subscribe to status updates for all cameras
+    Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
+      if (cameraAssignments[cameraId]) {
+        processingManager.registerCamera(
+          cameraId,
+          cameraAssignments[cameraId]!,
+          (status) => updateCameraStatus(cameraId, status)
+        );
+      }
+    });
+
+    return () => {
+      // Cleanup: unregister all cameras
+      Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
+        processingManager.unregisterCamera(cameraId);
+      });
+    };
+  }, [selectedSchool, cameraAssignments]);
+
   const handleThreatClick = (id: string) => {
     // Find the threat and get its camera ID
     const threat = activeThreats.find(t => t.id === id);
