@@ -68,20 +68,14 @@ export class CameraProcessingManager {
   }
 
   private updateCameraStatus(deviceId: string, newStatus: CameraStatus) {
-    const camera = this.cameras.get(deviceId);
-    if (!camera) return;
-
-    // Get all cameras using this device
     const cameraIds = this.deviceToCameras.get(deviceId);
     if (!cameraIds) return;
 
-    // Update all cameras using this device
-    cameraIds.forEach(cameraId => {
-      // Verify this camera is still assigned to this device
-      if (this.cameraToDevice.get(cameraId) !== deviceId) {
-        return;
-      }
+    const camera = this.cameras.get(deviceId);
+    if (!camera) return;
 
+    // Update status for all nodes using this specific device
+    cameraIds.forEach(cameraId => {
       const nodeStatus = camera.nodeStatuses.get(cameraId);
       if (!nodeStatus) return;
 
@@ -91,26 +85,25 @@ export class CameraProcessingManager {
         nodeStatus.statusTimeout = null;
       }
 
+      // Only update if status is different or it's a new threat
       if (newStatus !== 'NORMAL') {
         nodeStatus.currentStatus = newStatus;
         nodeStatus.lastThreatTime = Date.now();
         nodeStatus.onStatusUpdate(newStatus);
 
-        // Set timeout to revert to NORMAL
+        // Set timeout to revert to NORMAL after STATUS_PERSISTENCE time
         nodeStatus.statusTimeout = setTimeout(() => {
-          // Verify camera is still assigned to this device before updating
-          if (this.cameraToDevice.get(cameraId) === deviceId) {
-            const currentCamera = this.cameras.get(deviceId);
-            const currentNodeStatus = currentCamera?.nodeStatuses.get(cameraId);
-            if (currentNodeStatus) {
-              currentNodeStatus.currentStatus = 'NORMAL';
-              currentNodeStatus.onStatusUpdate('NORMAL');
-              currentNodeStatus.statusTimeout = null;
-            }
+          const currentCamera = this.cameras.get(deviceId);
+          const currentNodeStatus = currentCamera?.nodeStatuses.get(cameraId);
+          if (currentNodeStatus) {
+            currentNodeStatus.currentStatus = 'NORMAL';
+            currentNodeStatus.onStatusUpdate('NORMAL');
+            currentNodeStatus.statusTimeout = null;
           }
         }, this.STATUS_PERSISTENCE);
       } else if (nodeStatus.currentStatus !== 'NORMAL' && 
                  Date.now() - nodeStatus.lastThreatTime >= this.STATUS_PERSISTENCE) {
+        // Only revert to NORMAL if enough time has passed since last threat
         nodeStatus.currentStatus = 'NORMAL';
         nodeStatus.onStatusUpdate('NORMAL');
       }
@@ -123,12 +116,34 @@ export class CameraProcessingManager {
     onStatusUpdate: (status: CameraStatus) => void
   ): Promise<void> {
     try {
-      // First, unregister this camera from any previous device
-      await this.unregisterCamera(cameraId);
+      // Clean up any existing registration for this camera
+      const oldDeviceId = this.cameraToDevice.get(cameraId);
+      if (oldDeviceId) {
+        // Remove this camera from old device's tracking
+        const oldCameraIds = this.deviceToCameras.get(oldDeviceId);
+        if (oldCameraIds) {
+          oldCameraIds.delete(cameraId);
+          // If old device has no more cameras, clean it up
+          if (oldCameraIds.size === 0) {
+            this.cleanupDevice(oldDeviceId);
+          } else {
+            // Just remove this camera's status tracking
+            const oldCamera = this.cameras.get(oldDeviceId);
+            if (oldCamera) {
+              const oldNodeStatus = oldCamera.nodeStatuses.get(cameraId);
+              if (oldNodeStatus?.statusTimeout) {
+                clearTimeout(oldNodeStatus.statusTimeout);
+              }
+              oldCamera.nodeStatuses.delete(cameraId);
+            }
+          }
+        }
+      }
 
       // Set up new device if needed
       let camera = this.cameras.get(deviceId);
       if (!camera) {
+        // Create new camera processing for this device
         const videoElement = document.createElement('video');
         videoElement.autoplay = true;
         videoElement.playsInline = true;
@@ -158,6 +173,7 @@ export class CameraProcessingManager {
         };
 
         this.cameras.set(deviceId, camera);
+        this.startProcessing(deviceId);
       }
 
       // Update mappings
@@ -165,20 +181,17 @@ export class CameraProcessingManager {
         this.deviceToCameras.set(deviceId, new Set());
       }
       this.deviceToCameras.get(deviceId)!.add(cameraId);
+
+      // Track which device this camera is using
       this.cameraToDevice.set(cameraId, deviceId);
 
-      // Set up status tracking for this camera
+      // Add status tracking for this node
       camera.nodeStatuses.set(cameraId, {
         onStatusUpdate,
         currentStatus: 'NORMAL',
         lastThreatTime: 0,
         statusTimeout: null
       });
-
-      // Start processing if not already started
-      if (!camera.processingInterval) {
-        this.startProcessing(deviceId);
-      }
 
     } catch (error) {
       console.error(`Error registering camera ${cameraId}:`, error);
@@ -190,77 +203,72 @@ export class CameraProcessingManager {
     const deviceId = this.cameraToDevice.get(cameraId);
     if (!deviceId) return;
 
-    const camera = this.cameras.get(deviceId);
-    if (camera) {
-      // Clear status timeout for this camera
-      const nodeStatus = camera.nodeStatuses.get(cameraId);
-      if (nodeStatus?.statusTimeout) {
-        clearTimeout(nodeStatus.statusTimeout);
-      }
-      camera.nodeStatuses.delete(cameraId);
+    const cameraIds = this.deviceToCameras.get(deviceId);
+    if (cameraIds) {
+      cameraIds.delete(cameraId);
+      
+      const camera = this.cameras.get(deviceId);
+      if (camera) {
+        // Clear status timeout for this node
+        const nodeStatus = camera.nodeStatuses.get(cameraId);
+        if (nodeStatus?.statusTimeout) {
+          clearTimeout(nodeStatus.statusTimeout);
+        }
+        camera.nodeStatuses.delete(cameraId);
 
-      // Remove from device tracking
-      const cameraIds = this.deviceToCameras.get(deviceId);
-      if (cameraIds) {
-        cameraIds.delete(cameraId);
-        
-        // If no more cameras are using this device, clean it up
+        // If this was the last camera using this device, clean up everything
         if (cameraIds.size === 0) {
           this.cleanupDevice(deviceId);
         }
       }
     }
 
-    // Remove camera-to-device mapping
+    // Always remove the camera-to-device mapping
     this.cameraToDevice.delete(cameraId);
-
-    // Set status to NORMAL before removing
-    const nodeStatus = camera?.nodeStatuses.get(cameraId);
-    if (nodeStatus) {
-      nodeStatus.onStatusUpdate('NORMAL');
-    }
   }
 
   private startProcessing(deviceId: string): void {
     const camera = this.cameras.get(deviceId);
     if (!camera) return;
 
-    // Clear any existing processing
-    if (camera.processingInterval) {
-      clearTimeout(camera.processingInterval);
-      camera.processingInterval = null;
-    }
+    // Clear any existing processing interval
+    this.stopProcessing(deviceId);
 
     const processFrame = async () => {
       const now = Date.now();
       if (now - camera.lastProcessedTime < this.PROCESSING_INTERVAL) return;
 
       try {
+        // Ensure camera is still registered and streaming
         if (!this.cameras.has(deviceId) || !camera.stream) {
           this.stopProcessing(deviceId);
           return;
         }
 
+        // Set canvas dimensions to match video
         camera.canvas.width = camera.videoElement.videoWidth;
         camera.canvas.height = camera.videoElement.videoHeight;
 
+        // Draw the current frame to canvas
         const context = camera.canvas.getContext('2d');
         if (!context) return;
         context.drawImage(camera.videoElement, 0, 0, camera.canvas.width, camera.canvas.height);
 
+        // Process the frame
         const imageData = this.processingService.canvasToBase64(camera.canvas);
         const result = await this.processingService.processFrame(imageData);
 
-        // Only update status if we still have cameras using this device
-        const activeCameras = this.deviceToCameras.get(deviceId);
-        if (activeCameras && activeCameras.size > 0) {
-          if (result.threats.length > 0) {
-            const highestThreat = result.threats.sort((a, b) => b.confidence - a.confidence)[0];
-            const newStatus: CameraStatus = 
-              highestThreat.confidence > 0.8 ? 'HIGH' :
-              highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
-            this.updateCameraStatus(deviceId, newStatus);
-          } else {
+        // Update status based on threats
+        if (result.threats.length > 0) {
+          const highestThreat = result.threats.sort((a, b) => b.confidence - a.confidence)[0];
+          const newStatus: CameraStatus = 
+            highestThreat.confidence > 0.8 ? 'HIGH' :
+            highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
+          this.updateCameraStatus(deviceId, newStatus);
+        } else {
+          // Only update to NORMAL if we have active cameras on this device
+          const activeCameras = this.deviceToCameras.get(deviceId);
+          if (activeCameras && activeCameras.size > 0) {
             this.updateCameraStatus(deviceId, 'NORMAL');
           }
         }
@@ -271,6 +279,7 @@ export class CameraProcessingManager {
       }
     };
 
+    // Start continuous processing
     const process = () => {
       if (!this.cameras.has(deviceId)) {
         this.stopProcessing(deviceId);
@@ -288,10 +297,13 @@ export class CameraProcessingManager {
     if (camera?.processingInterval) {
       clearTimeout(camera.processingInterval);
       camera.processingInterval = null;
+      // Set status to NORMAL for all nodes using this device
+      this.updateCameraStatus(deviceId, 'NORMAL');
     }
   }
 
   public getProcessedFrame(cameraId: string): string | null {
+    // Get the device this camera is using
     const deviceId = this.cameraToDevice.get(cameraId);
     if (!deviceId) return null;
 

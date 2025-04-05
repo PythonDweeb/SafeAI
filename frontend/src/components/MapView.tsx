@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 // Import Leaflet types but not the actual library on server
-import type { LatLngTuple, LatLngExpression, Marker as LeafletMarker, DivIcon } from 'leaflet';
+import type { LatLngTuple, Marker as LeafletMarker, DivIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // Dynamically import Leaflet components with no SSR to avoid hydration issues
@@ -132,25 +132,29 @@ const SCHOOL_LOCATIONS = {
 const TILE_LAYERS = {
   street: {
     url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     maxNativeZoom: 19,
     maxZoom: 20
   },
   satellite: {
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    attribution:
+      'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
     maxNativeZoom: 19,
     maxZoom: 20
   },
   terrain: { // Using ESRI World Topographic Map
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
-    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community',
+    attribution:
+      'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community',
     maxNativeZoom: 19,
     maxZoom: 20
   },
   dark: {
     url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     maxNativeZoom: 19,
     maxZoom: 20
   }
@@ -158,12 +162,19 @@ const TILE_LAYERS = {
 
 // Define Camera interface
 interface Camera {
-  id: string; name: string; location: string; status: StatusType; position: LatLngTuple; lastUpdate: string;
+  id: string;
+  name: string;
+  location: string;
+  status: StatusType;
+  position: LatLngTuple;
+  lastUpdate: string;
 }
 
 // Define AccessPoint interface
 interface AccessPoint {
-  id: string; position: LatLngTuple; name: string;
+  id: string;
+  position: LatLngTuple;
+  name: string;
 }
 
 interface MapViewProps {
@@ -196,15 +207,23 @@ const mapStyles = `
 `;
 
 interface OptimalPath {
-  path: LatLngTuple[]; timeEstimate: number; startAccessPointId: string;
+  path: LatLngTuple[];
+  timeEstimate: number;
+  startAccessPointId: string;
 }
 
 const MapView: React.FC<MapViewProps> = ({
-  selectedSchool, onMarkerClick, highlightedCamera, cameraAssignments, cameraStatuses, onViewCameraClick
+  selectedSchool,
+  onMarkerClick,
+  highlightedCamera,
+  cameraAssignments,
+  cameraStatuses,
+  onViewCameraClick
 }) => {
   const [mounted, setMounted] = useState(false);
   const [mapKey, setMapKey] = useState<number>(Date.now());
   const [leafletInstance, setLeafletInstance] = useState<any>(null);
+  const [map, setMap] = useState<any>(null);
   const [selectedCamera, setSelectedCamera] = useState<Camera | null>(null);
   const [optimalPath, setOptimalPath] = useState<OptimalPath | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -213,7 +232,10 @@ const MapView: React.FC<MapViewProps> = ({
   const [cameraPositions, setCameraPositions] = useState<Camera[]>([]);
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setMounted(true); return () => setMounted(false); }, []);
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -257,10 +279,25 @@ const MapView: React.FC<MapViewProps> = ({
       if (camera) {
         setOptimalPath(null);
         setSelectedCamera(camera);
-        try { findOptimalPath(camera); } catch (error) { console.error("Error finding optimal path:", error); setMapError("Could not calculate response path"); }
+        try {
+          findOptimalPath(camera);
+        } catch (error) {
+          console.error("Error finding optimal path:", error);
+          setMapError("Could not calculate response path");
+        }
       }
     }
   }, [highlightedCamera, selectedSchool, mounted, leafletInstance, currentAccessPoints, cameraPositions]);
+
+  // New effect: When the selected map type changes, force the map to recalc its dimensions.
+  useEffect(() => {
+    if (map) {
+      setTimeout(() => {
+        map.invalidateSize();
+        window.dispatchEvent(new Event('resize'));
+      }, 300);
+    }
+  }, [selectedLayerKey, map]);
 
   const handleCameraDragEnd = (id: string, newPos: LatLngTuple) => {
     setCameraPositions(prevCameras =>
@@ -272,15 +309,31 @@ const MapView: React.FC<MapViewProps> = ({
     try {
       if (!leafletInstance || currentAccessPoints.length === 0) return;
       let nearestAccessPoint = currentAccessPoints[0];
-      let shortestDistance = calculateHaversineDistance(camera.position[0], camera.position[1], nearestAccessPoint.position[0], nearestAccessPoint.position[1]);
+      let shortestDistance = calculateHaversineDistance(
+        camera.position[0],
+        camera.position[1],
+        nearestAccessPoint.position[0],
+        nearestAccessPoint.position[1]
+      );
       currentAccessPoints.forEach(accessPoint => {
-        const distance = calculateHaversineDistance(camera.position[0], camera.position[1], accessPoint.position[0], accessPoint.position[1]);
-        if (distance < shortestDistance) { shortestDistance = distance; nearestAccessPoint = accessPoint; }
+        const distance = calculateHaversineDistance(
+          camera.position[0],
+          camera.position[1],
+          accessPoint.position[0],
+          accessPoint.position[1]
+        );
+        if (distance < shortestDistance) {
+          shortestDistance = distance;
+          nearestAccessPoint = accessPoint;
+        }
       });
       const path = calculateDetailedPath(nearestAccessPoint.position, camera.position);
       const timeEstimate = Math.ceil(shortestDistance * 1000 / 1.4);
       setOptimalPath({ path, timeEstimate, startAccessPointId: nearestAccessPoint.id });
-    } catch (error) { console.error("Error in findOptimalPath:", error); setMapError("Error calculating response path"); }
+    } catch (error) {
+      console.error("Error in findOptimalPath:", error);
+      setMapError("Error calculating response path");
+    }
   };
 
   const calculateHaversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -288,7 +341,9 @@ const MapView: React.FC<MapViewProps> = ({
     const toRad = (v: number) => v * Math.PI / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+              Math.sin(dLon / 2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
@@ -296,7 +351,12 @@ const MapView: React.FC<MapViewProps> = ({
   const calculateTotalPathDistance = (path: LatLngTuple[]): number => {
     let totalDistance = 0;
     for (let i = 0; i < path.length - 1; i++) {
-      totalDistance += calculateHaversineDistance(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]);
+      totalDistance += calculateHaversineDistance(
+        path[i][0],
+        path[i][1],
+        path[i + 1][0],
+        path[i + 1][1]
+      );
     }
     return totalDistance;
   };
@@ -320,7 +380,10 @@ const MapView: React.FC<MapViewProps> = ({
         iconAnchor: [isHighlighted ? 8 : 6, isHighlighted ? 8 : 6],
         popupAnchor: [0, isHighlighted ? -10 : -8]
       });
-    } catch (error) { console.error("Error creating custom icon:", error); return new leafletInstance.Icon.Default(); }
+    } catch (error) {
+      console.error("Error creating custom icon:", error);
+      return new leafletInstance.Icon.Default();
+    }
   };
 
   const calculateDetailedPath = (start: LatLngTuple, end: LatLngTuple): LatLngTuple[] => {
@@ -367,8 +430,21 @@ const MapView: React.FC<MapViewProps> = ({
     return remainingSeconds === 0 ? `${minutes} min` : `${minutes}m ${remainingSeconds}s`;
   };
 
-  const cleanupPath = () => { setOptimalPath(null); setMapError(null); };
-  const handleMarkerClick = (cameraId: string) => { cleanupPath(); onMarkerClick(cameraId); };
+  const cleanupPath = () => {
+    setOptimalPath(null);
+    setMapError(null);
+  };
+
+  const handleMarkerClick = (cameraId: string) => {
+    cleanupPath();
+    onMarkerClick(cameraId);
+    if (map) {
+      setTimeout(() => {
+        map.invalidateSize();
+        window.dispatchEvent(new Event('resize'));
+      }, 300);
+    }
+  };
 
   const createAccessPointIcon = (): DivIcon | undefined => {
     if (!leafletInstance) return undefined;
@@ -417,6 +493,12 @@ const MapView: React.FC<MapViewProps> = ({
         zoomControl={false}
         scrollWheelZoom={true}
         maxZoom={20}
+        whenCreated={(mapInstance) => {
+          setMap(mapInstance);
+          mapInstance.on('zoomend', () => {
+            mapInstance.invalidateSize();
+          });
+        }}
       >
         <TileLayer
           key={selectedLayerKey}
@@ -424,6 +506,7 @@ const MapView: React.FC<MapViewProps> = ({
           url={TILE_LAYERS[selectedLayerKey].url}
           maxNativeZoom={TILE_LAYERS[selectedLayerKey].maxNativeZoom}
           maxZoom={TILE_LAYERS[selectedLayerKey].maxZoom}
+          crossOrigin=""
         />
         <ZoomControl position="topright" />
 
