@@ -40,14 +40,23 @@ const SCHOOL_CAMERA_INFO = {
   }
 };
 
-// Initial threats - all NORMAL status
-const INITIAL_THREATS = [
-  { id: 'phhs-cam1', cameraId: 'phhs-cam1', location: 'Main Entrance', timestamp: 'Now', status: 'NORMAL' as const },
-  { id: 'phhs-cam2', cameraId: 'phhs-cam2', location: 'Gymnasium', timestamp: 'Now', status: 'NORMAL' as const },
-  { id: 'phhs-cam3', cameraId: 'phhs-cam3', location: 'Parking Lot', timestamp: 'Now', status: 'NORMAL' as const },
-  { id: 'phhs-cam4', cameraId: 'phhs-cam4', location: 'Science Building', timestamp: 'Now', status: 'NORMAL' as const },
-  { id: 'phhs-cam5', cameraId: 'phhs-cam5', location: 'Cafeteria', timestamp: 'Now', status: 'NORMAL' as const },
-  { id: 'phhs-cam6', cameraId: 'phhs-cam6', location: 'Library', timestamp: 'Now', status: 'NORMAL' as const }
+// Update the type definition at the top of the file
+type ThreatItem = {
+  id: string;
+  cameraId: string;
+  location: string;
+  timestamp: string;
+  status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+};
+
+// Update the INITIAL_THREATS constant
+const INITIAL_THREATS: ThreatItem[] = [
+  { id: 'phhs-cam1', cameraId: 'phhs-cam1', location: 'Main Entrance', timestamp: 'Now', status: 'NORMAL' },
+  { id: 'phhs-cam2', cameraId: 'phhs-cam2', location: 'Gymnasium', timestamp: 'Now', status: 'NORMAL' },
+  { id: 'phhs-cam3', cameraId: 'phhs-cam3', location: 'Parking Lot', timestamp: 'Now', status: 'NORMAL' },
+  { id: 'phhs-cam4', cameraId: 'phhs-cam4', location: 'Science Building', timestamp: 'Now', status: 'NORMAL' },
+  { id: 'phhs-cam5', cameraId: 'phhs-cam5', location: 'Cafeteria', timestamp: 'Now', status: 'NORMAL' },
+  { id: 'phhs-cam6', cameraId: 'phhs-cam6', location: 'Library', timestamp: 'Now', status: 'NORMAL' }
 ];
 
 // Get camera info from camera ID
@@ -63,22 +72,13 @@ const getCameraInfo = (schoolName: string, cameraId: string): CameraInfo | undef
 
 type SchoolName = "Piedmont Hills High School" | "Los Altos High School";
 
-// Define the ThreatItem type
-type ThreatItem = {
-  id: string;
-  cameraId: string;
-  location: string;
-  timestamp: string;
-  status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-};
-
 export default function Dashboard() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState(''); // Empty by default
   const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState('');
   const [selectedSchool, setSelectedSchool] = useState<SchoolName>("Piedmont Hills High School");
-  const [activeThreats, setActiveThreats] = useState<ThreatItem[]>(INITIAL_THREATS);
+  const [activeThreats, setActiveThreats] = useState(INITIAL_THREATS);
   const [cameraStatuses, setCameraStatuses] = useState<Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'>>(() => {
     const initial: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
     // Initialize all cameras for both schools
@@ -158,20 +158,10 @@ export default function Dashboard() {
     setActiveThreats(INITIAL_THREATS);
   }, [selectedSchool]);
   
-  // Update camera statuses when school changes
+  // Listen for camera status changes
   useEffect(() => {
-    // Reset all camera statuses to NORMAL when school changes
-    const newStatuses: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
-    Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
-      // Only keep non-NORMAL status if camera is assigned
-      newStatuses[cameraId] = cameraAssignments[cameraId] ? (cameraStatuses[cameraId] || 'NORMAL') : 'NORMAL';
-    });
-    setCameraStatuses(newStatuses);
-  }, [selectedSchool]);
-  
-  // Listen for camera status updates from the processing manager
-  useEffect(() => {
-    const updateCameraStatus = (cameraId: string, status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW') => {
+    const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
+      const { cameraId, status } = event.detail;
       setCameraStatuses(prev => ({
         ...prev,
         [cameraId]: status
@@ -181,31 +171,28 @@ export default function Dashboard() {
       setActiveThreats(prev => 
         prev.map(threat => 
           threat.cameraId === cameraId 
-            ? { ...threat, status, timestamp: 'Now' }
+            ? { ...threat, status, timestamp: 'Now' } 
             : threat
         )
       );
     };
 
-    // Subscribe to status updates for all cameras
-    Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
-      if (cameraAssignments[cameraId]) {
-        processingManager.registerCamera(
-          cameraId,
-          cameraAssignments[cameraId]!,
-          (status) => updateCameraStatus(cameraId, status)
-        );
-      }
-    });
-
+    window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
     return () => {
-      // Cleanup: unregister all cameras
-      Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
-        processingManager.unregisterCamera(cameraId);
-      });
+      window.removeEventListener('cameraStatusChanged', handleStatusChange as EventListener);
     };
-  }, [selectedSchool, cameraAssignments]);
-
+  }, []);
+  
+  // Update camera statuses when school changes
+  useEffect(() => {
+    // Reset all camera statuses to NORMAL when school changes
+    const newStatuses: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
+    Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
+      newStatuses[cameraId] = 'NORMAL';
+    });
+    setCameraStatuses(newStatuses);
+  }, [selectedSchool]);
+  
   const handleThreatClick = (id: string) => {
     // Find the threat and get its camera ID
     const threat = activeThreats.find(t => t.id === id);

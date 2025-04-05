@@ -6,10 +6,37 @@ import TypingEffect from '@/components/TypingEffect';
 
 export default function LandingPage() {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [cameraStatuses, setCameraStatuses] = useState<Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'>>({});
+  const [activeThreats, setActiveThreats] = useState<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoaded(true), 100);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Listen for camera status changes
+  useEffect(() => {
+    const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
+      const { cameraId, status } = event.detail;
+      setCameraStatuses(prev => ({
+        ...prev,
+        [cameraId]: status
+      }));
+
+      // Also update active threats
+      setActiveThreats(prev => 
+        prev.map(threat => 
+          threat.cameraId === cameraId 
+            ? { ...threat, status } 
+            : threat
+        )
+      );
+    };
+
+    window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    return () => {
+      window.removeEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    };
   }, []);
 
   return (
