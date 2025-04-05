@@ -16,6 +16,8 @@ interface CameraProcessingInfo {
     lastThreatTime: number;
     statusTimeout: NodeJS.Timeout | null;
   }>;
+  // Store the processed frame with red boxes
+  processedFrame: string | null;
 }
 
 export class CameraProcessingManager {
@@ -169,7 +171,8 @@ export class CameraProcessingManager {
           canvas,
           processingInterval: null,
           lastProcessedTime: 0,
-          nodeStatuses: new Map()
+          nodeStatuses: new Map(),
+          processedFrame: null
         };
 
         this.cameras.set(deviceId, camera);
@@ -258,6 +261,11 @@ export class CameraProcessingManager {
         const imageData = this.processingService.canvasToBase64(camera.canvas);
         const result = await this.processingService.processFrame(imageData);
 
+        // Store the processed frame with red boxes
+        if (result.processed_image) {
+          camera.processedFrame = `data:image/jpeg;base64,${result.processed_image}`;
+        }
+
         // Update status based on threats
         if (result.threats && result.threats.length > 0) {
           const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
@@ -279,14 +287,14 @@ export class CameraProcessingManager {
       }
     };
 
-    // Start continuous processing
+    // Start continuous processing with a longer interval to respect backend timing
     const process = () => {
       if (!this.cameras.has(deviceId)) {
         this.stopProcessing(deviceId);
         return;
       }
       processFrame();
-      camera.processingInterval = setTimeout(process, this.PROCESSING_INTERVAL);
+      camera.processingInterval = setTimeout(process, 1500); // Match backend's min_process_interval
     };
 
     process();
@@ -309,6 +317,8 @@ export class CameraProcessingManager {
 
     const camera = this.cameras.get(deviceId);
     if (!camera || !camera.processingInterval) return null;
-    return camera.canvas.toDataURL('image/jpeg');
+    
+    // Return the processed frame with red boxes if available
+    return camera.processedFrame || camera.canvas.toDataURL('image/jpeg');
   }
 } 
