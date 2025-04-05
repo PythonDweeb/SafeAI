@@ -84,13 +84,13 @@ export class CameraProcessingManager {
         nodeStatus.statusTimeout = null;
       }
 
-      // Only update if status is different or it's a new threat
-      if (newStatus !== 'NORMAL') {
-        nodeStatus.currentStatus = newStatus;
-        nodeStatus.lastThreatTime = Date.now();
-        nodeStatus.onStatusUpdate(newStatus);
+      // Update status immediately
+      nodeStatus.currentStatus = newStatus;
+      nodeStatus.onStatusUpdate(newStatus);
 
-        // Set timeout to revert to NORMAL after STATUS_PERSISTENCE time
+      if (newStatus !== 'NORMAL') {
+        // For non-NORMAL status, set timeout to revert
+        nodeStatus.lastThreatTime = Date.now();
         nodeStatus.statusTimeout = setTimeout(() => {
           const currentCamera = this.cameras.get(deviceId);
           const currentNodeStatus = currentCamera?.nodeStatuses.get(cameraId);
@@ -100,11 +100,6 @@ export class CameraProcessingManager {
             currentNodeStatus.statusTimeout = null;
           }
         }, this.STATUS_PERSISTENCE);
-      } else if (nodeStatus.currentStatus !== 'NORMAL' && 
-                 Date.now() - nodeStatus.lastThreatTime >= this.STATUS_PERSISTENCE) {
-        // Only revert to NORMAL if enough time has passed since last threat
-        nodeStatus.currentStatus = 'NORMAL';
-        nodeStatus.onStatusUpdate('NORMAL');
       }
     });
   }
@@ -272,11 +267,8 @@ export class CameraProcessingManager {
             highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
           this.updateCameraStatus(deviceId, newStatus);
         } else {
-          // Only update to NORMAL if we have active cameras on this device
-          const activeCameras = this.deviceToCameras.get(deviceId);
-          if (activeCameras && activeCameras.size > 0) {
-            this.updateCameraStatus(deviceId, 'NORMAL');
-          }
+          // Always update to NORMAL when no threats are detected
+          this.updateCameraStatus(deviceId, 'NORMAL');
         }
 
         camera.lastProcessedTime = now;

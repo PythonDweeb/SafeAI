@@ -248,16 +248,7 @@ const CameraView: React.FC<CameraViewProps> = ({
     };
   }, [selectedDeviceId]);
 
-  // Update camera status when threats are detected
-  useEffect(() => {
-    const newStatus = threats.length > 0 ? 'HIGH' : 'NORMAL';
-    if (newStatus !== cameraStatus) {
-      setCameraStatus(newStatus);
-      onStatusUpdate(newStatus);
-    }
-  }, [threats, onStatusUpdate, cameraStatus]);
-
-  // Register with the processing manager when device is selected
+  // Update local status when it changes through the manager
   useEffect(() => {
     if (!selectedDeviceId || !cameraId) return;
 
@@ -266,7 +257,10 @@ const CameraView: React.FC<CameraViewProps> = ({
         await processingManager.registerCamera(
           cameraId,
           selectedDeviceId,
-          onStatusUpdate
+          (status) => {
+            setCameraStatus(status);
+            onStatusUpdate(status);
+          }
         );
       } catch (error) {
         console.error('Error registering camera with processing manager:', error);
