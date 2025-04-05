@@ -93,24 +93,14 @@ const CameraView: React.FC<CameraViewProps> = ({
       // Always update threats and status
       setThreats(result.threats);
       
-      // Store the processed frame in the manager and update the display
-      const processedFrame = `data:image/jpeg;base64,${result.processed_image}`;
-      processingManager.setProcessedFrame(cameraId, processedFrame);
-      
-      if (isFromThreatMonitor) {
-        setProcessedImageUrl(processedFrame);
-      }
-      
       // Update status based on threats
       if (result.threats.length > 0) {
         const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
         const newStatus = highestThreat.confidence > 0.8 ? 'HIGH' :
                          highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
         onStatusUpdate(newStatus);
-        processingManager.updateCameraStatus(cameraId, newStatus);
       } else {
         onStatusUpdate('NORMAL');
-        processingManager.updateCameraStatus(cameraId, 'NORMAL');
       }
       
       lastProcessedTimeRef.current = now;
@@ -267,15 +257,33 @@ const CameraView: React.FC<CameraViewProps> = ({
     }
   }, [threats, onStatusUpdate, cameraStatus]);
 
+  // Register with the processing manager when device is selected
+  useEffect(() => {
+    if (!selectedDeviceId || !cameraId) return;
+
+    const registerWithManager = async () => {
+      try {
+        await processingManager.registerCamera(
+          cameraId,
+          selectedDeviceId,
+          onStatusUpdate
+        );
+      } catch (error) {
+        console.error('Error registering camera with processing manager:', error);
+        setError('Error connecting to camera processing system');
+      }
+    };
+    
+    registerWithManager();
+    
+    return () => {
+      processingManager.unregisterCamera(cameraId);
+    };
+  }, [selectedDeviceId, cameraId, onStatusUpdate]);
+
   // Update processed frame display for threat monitor view
   useEffect(() => {
-    if (!isFromThreatMonitor || !selectedDeviceId) {
-      if (processedFrameInterval.current) {
-        clearInterval(processedFrameInterval.current);
-        processedFrameInterval.current = null;
-      }
-      return;
-    }
+    if (!isFromThreatMonitor || !selectedDeviceId) return;
 
     const updateProcessedFrame = () => {
       const frame = processingManager.getProcessedFrame(cameraId);
@@ -286,45 +294,12 @@ const CameraView: React.FC<CameraViewProps> = ({
 
     // Update immediately and then every second
     updateProcessedFrame();
-    processedFrameInterval.current = setInterval(updateProcessedFrame, 1000);
+    const interval = setInterval(updateProcessedFrame, 1000);
     
-    return () => {
-      if (processedFrameInterval.current) {
-        clearInterval(processedFrameInterval.current);
-        processedFrameInterval.current = null;
-      }
-    };
-  }, [isFromThreatMonitor, selectedDeviceId, cameraId]);
-
-  // Effect to retrieve processed frame from manager
-  useEffect(() => {
-    if (!isFromThreatMonitor) return;
-
-    const updateProcessedFrame = () => {
-      const frame = processingManager.getProcessedFrame(cameraId);
-      if (frame) {
-        setProcessedImageUrl(frame);
-      }
-    };
-
-    // Update immediately
-    updateProcessedFrame();
-
-    // Set up interval to check for new frames
-    const interval = setInterval(updateProcessedFrame, 100);
-
     return () => {
       clearInterval(interval);
     };
-  }, [cameraId, isFromThreatMonitor]);
-
-  // Register camera with manager when device changes
-  useEffect(() => {
-    processingManager.registerCamera(cameraId, selectedDeviceId);
-    return () => {
-      processingManager.unregisterCamera(cameraId);
-    };
-  }, [cameraId, selectedDeviceId]);
+  }, [isFromThreatMonitor, selectedDeviceId, cameraId]);
 
   return (
     <div className="relative w-full h-full bg-black">
