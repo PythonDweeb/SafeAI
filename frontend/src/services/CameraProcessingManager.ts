@@ -4,6 +4,7 @@ export class CameraProcessingManager {
   private cameraToDevice: Map<string, string> = new Map();
   private deviceToCameras: Map<string, Set<string>> = new Map();
   private nodeStatuses: Map<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = new Map();
+  private processedFrames: Map<string, string> = new Map();
 
   private constructor() {}
 
@@ -52,6 +53,7 @@ export class CameraProcessingManager {
     }
     this.cameraToDevice.delete(cameraId);
     this.nodeStatuses.delete(cameraId);
+    this.processedFrames.delete(cameraId);
   }
 
   public updateCameraStatus(cameraId: string, status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW') {
@@ -64,5 +66,13 @@ export class CameraProcessingManager {
 
   public getDeviceForCamera(cameraId: string): string | null {
     return this.cameraToDevice.get(cameraId) || null;
+  }
+
+  public setProcessedFrame(cameraId: string, frame: string) {
+    this.processedFrames.set(cameraId, frame);
+  }
+
+  public getProcessedFrame(cameraId: string): string | null {
+    return this.processedFrames.get(cameraId) || null;
   }
 } 
