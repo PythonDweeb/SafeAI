@@ -291,6 +291,30 @@ const CameraView: React.FC<CameraViewProps> = ({
     };
   }, [isFromThreatMonitor, selectedDeviceId, cameraId]);
 
+  // Register with the processing manager when device is selected
+  useEffect(() => {
+    if (!selectedDeviceId || !cameraId) return;
+    
+    const registerWithManager = async () => {
+      try {
+        await processingManager.registerCamera(
+          cameraId,
+          selectedDeviceId,
+          onStatusUpdate
+        );
+      } catch (error) {
+        console.error('Error registering camera with processing manager:', error);
+        setError('Error connecting to camera processing system');
+      }
+    };
+    
+    registerWithManager();
+    
+    return () => {
+      processingManager.unregisterCamera(cameraId);
+    };
+  }, [selectedDeviceId, cameraId, onStatusUpdate]);
+
   return (
     <div className="relative w-full h-full bg-black">
       {/* Original video element - hidden when showing processed feed */}

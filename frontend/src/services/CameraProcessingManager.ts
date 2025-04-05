@@ -16,6 +16,8 @@ interface CameraProcessingInfo {
     lastThreatTime: number;
     statusTimeout: NodeJS.Timeout | null;
   }>;
+  // Store the processed frame with red boxes
+  processedFrame: string | null;
 }
 
 export class CameraProcessingManager {
@@ -159,7 +161,8 @@ export class CameraProcessingManager {
           canvas,
           processingInterval: null,
           lastProcessedTime: 0,
-          nodeStatuses: new Map()
+          nodeStatuses: new Map(),
+          processedFrame: null
         };
 
         this.cameras.set(deviceId, camera);
@@ -272,9 +275,14 @@ export class CameraProcessingManager {
         const imageData = this.processingService.canvasToBase64(camera.canvas);
         const result = await this.processingService.processFrame(imageData);
 
+        // Store the processed frame with red boxes
+        if (result.processed_image) {
+          camera.processedFrame = `data:image/jpeg;base64,${result.processed_image}`;
+        }
+
         // Only update status if we still have cameras using this device
         if (activeCameras && activeCameras.size > 0) {
-          if (result.threats.length > 0) {
+          if (result.threats && result.threats.length > 0) {
             const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
             const newStatus: CameraStatus = 
               highestThreat.confidence > 0.8 ? 'HIGH' :
@@ -330,6 +338,7 @@ export class CameraProcessingManager {
     // Verify the camera is still assigned to this device
     if (this.cameraToDevice.get(cameraId) !== deviceId) return null;
     
-    return camera.canvas.toDataURL('image/jpeg');
+    // Return the processed frame with red boxes if available
+    return camera.processedFrame || camera.canvas.toDataURL('image/jpeg');
   }
 } 
