@@ -279,7 +279,10 @@ const CameraView: React.FC<CameraViewProps> = ({
       }
     };
 
+    // Update immediately and then every second
+    updateProcessedFrame();
     processedFrameInterval.current = setInterval(updateProcessedFrame, 1000);
+    
     return () => {
       if (processedFrameInterval.current) {
         clearInterval(processedFrameInterval.current);
