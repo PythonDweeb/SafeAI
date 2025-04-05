@@ -37,13 +37,21 @@ const Polyline = dynamic(
   { ssr: false }
 );
 
-// Modified DraggableMarker component for path points and access points
-const DraggableMarker = ({ position, id, onDragEnd, icon, children }: {
+// Extend DraggableMarker to accept additional event handlers
+const DraggableMarker = ({
+  position,
+  id,
+  onDragEnd,
+  icon,
+  children,
+  eventHandlers: extraEventHandlers = {}
+}: {
   position: LatLngTuple,
   id: string,
   onDragEnd: (id: string, position: LatLngTuple) => void,
   icon: any,
-  children?: React.ReactNode
+  children?: React.ReactNode,
+  eventHandlers?: any,
 }) => {
   const [markerPosition, setMarkerPosition] = useState<LatLngTuple>(position);
   const markerRef = useRef<LeafletMarker>(null);
@@ -52,7 +60,7 @@ const DraggableMarker = ({ position, id, onDragEnd, icon, children }: {
     setMarkerPosition(position);
   }, [position]);
 
-  const eventHandlers = {
+  const defaultHandlers = {
     dragend() {
       const marker = markerRef.current;
       if (marker != null) {
@@ -63,10 +71,13 @@ const DraggableMarker = ({ position, id, onDragEnd, icon, children }: {
     },
   };
 
+  // Merge any extra event handlers (e.g., click) with the default dragend handler.
+  const mergedHandlers = { ...defaultHandlers, ...extraEventHandlers };
+
   return (
     <Marker
       draggable={true}
-      eventHandlers={eventHandlers}
+      eventHandlers={mergedHandlers}
       position={markerPosition}
       ref={markerRef}
       icon={icon}
@@ -184,7 +195,6 @@ const mapStyles = `
 .leaflet-control-zoom a:hover { background-color: #f8f9fa !important; color: #333 !important; }
 `;
 
-// Updated OptimalPath interface
 interface OptimalPath {
   path: LatLngTuple[]; timeEstimate: number; startAccessPointId: string;
 }
@@ -200,6 +210,7 @@ const MapView: React.FC<MapViewProps> = ({
   const [mapError, setMapError] = useState<string | null>(null);
   const [currentAccessPoints, setCurrentAccessPoints] = useState<AccessPoint[]>([]);
   const [selectedLayerKey, setSelectedLayerKey] = useState<keyof typeof TILE_LAYERS>('street');
+  const [cameraPositions, setCameraPositions] = useState<Camera[]>([]);
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setMounted(true); return () => setMounted(false); }, []);
@@ -224,10 +235,13 @@ const MapView: React.FC<MapViewProps> = ({
       setOptimalPath(null);
       setMapError(null);
       const schoolData = SCHOOL_LOCATIONS[selectedSchool as keyof typeof SCHOOL_LOCATIONS];
-      if (schoolData && schoolData.accessPoints) {
-        setCurrentAccessPoints(JSON.parse(JSON.stringify(schoolData.accessPoints)));
-      } else {
-        setCurrentAccessPoints([]);
+      if (schoolData) {
+        setCameraPositions(schoolData.cameras);
+        if (schoolData.accessPoints) {
+          setCurrentAccessPoints(JSON.parse(JSON.stringify(schoolData.accessPoints)));
+        } else {
+          setCurrentAccessPoints([]);
+        }
       }
     }
   }, [selectedSchool, mounted]);
@@ -235,18 +249,24 @@ const MapView: React.FC<MapViewProps> = ({
   useEffect(() => {
     if (mounted && leafletInstance) {
       if (!highlightedCamera) {
-        setSelectedCamera(null); setOptimalPath(null); return;
+        setSelectedCamera(null);
+        setOptimalPath(null);
+        return;
       }
-      const schoolData = SCHOOL_LOCATIONS[selectedSchool as keyof typeof SCHOOL_LOCATIONS];
-      if (schoolData) {
-        const camera = schoolData.cameras.find(cam => cam.id === highlightedCamera);
-        if (camera) {
-          setOptimalPath(null); setSelectedCamera(camera);
-          try { findOptimalPath(camera); } catch (error) { console.error("Error finding optimal path:", error); setMapError("Could not calculate response path"); }
-        }
+      const camera = cameraPositions.find(cam => cam.id === highlightedCamera);
+      if (camera) {
+        setOptimalPath(null);
+        setSelectedCamera(camera);
+        try { findOptimalPath(camera); } catch (error) { console.error("Error finding optimal path:", error); setMapError("Could not calculate response path"); }
       }
     }
-  }, [highlightedCamera, selectedSchool, mounted, leafletInstance, currentAccessPoints]);
+  }, [highlightedCamera, selectedSchool, mounted, leafletInstance, currentAccessPoints, cameraPositions]);
+
+  const handleCameraDragEnd = (id: string, newPos: LatLngTuple) => {
+    setCameraPositions(prevCameras =>
+      prevCameras.map(camera => camera.id === id ? { ...camera, position: newPos } : camera)
+    );
+  };
 
   const findOptimalPath = (camera: Camera) => {
     try {
@@ -264,52 +284,86 @@ const MapView: React.FC<MapViewProps> = ({
   };
 
   const calculateHaversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371; const toRad = (v: number) => v * Math.PI / 180; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return R * c;
+    const R = 6371;
+    const toRad = (v: number) => v * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   };
 
   const calculateTotalPathDistance = (path: LatLngTuple[]): number => {
-    let totalDistance = 0; for (let i = 0; i < path.length - 1; i++) { totalDistance += calculateHaversineDistance(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]); } return totalDistance;
+    let totalDistance = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+      totalDistance += calculateHaversineDistance(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]);
+    }
+    return totalDistance;
   };
-
-  const toRad = (value: number) => value * Math.PI / 180;
 
   const createCustomIcon = (cameraId: string, isHighlighted: boolean): DivIcon | undefined => {
     if (!leafletInstance) return undefined;
     try {
-      const status = cameraStatuses[cameraId]; let iconColor = '#34c759';
-      if (status && status !== 'NORMAL') { switch (status) { case 'HIGH': iconColor = '#ff3b30'; break; case 'MEDIUM': iconColor = '#ff9500'; break; case 'LOW': iconColor = '#ffcc00'; break; } }
+      const status = cameraStatuses[cameraId];
+      let iconColor = '#34c759';
+      if (status && status !== 'NORMAL') {
+        switch (status) {
+          case 'HIGH': iconColor = '#ff3b30'; break;
+          case 'MEDIUM': iconColor = '#ff9500'; break;
+          case 'LOW': iconColor = '#ffcc00'; break;
+        }
+      }
       return leafletInstance.divIcon({
         className: `camera-marker ${isHighlighted ? 'camera-marker-highlighted' : ''}`,
         html: `<div style="background-color: ${iconColor}; border: ${isHighlighted ? '3px solid #3b82f6' : '2px solid white'}; border-radius: 50%; width: ${isHighlighted ? '16px' : '12px'}; height: ${isHighlighted ? '16px' : '12px'}; pointer-events: auto;"></div>`,
-        iconSize: [isHighlighted ? 16 : 12, isHighlighted ? 16 : 12], iconAnchor: [isHighlighted ? 8 : 6, isHighlighted ? 8 : 6], popupAnchor: [0, isHighlighted ? -10 : -8]
+        iconSize: [isHighlighted ? 16 : 12, isHighlighted ? 16 : 12],
+        iconAnchor: [isHighlighted ? 8 : 6, isHighlighted ? 8 : 6],
+        popupAnchor: [0, isHighlighted ? -10 : -8]
       });
     } catch (error) { console.error("Error creating custom icon:", error); return new leafletInstance.Icon.Default(); }
   };
 
   const calculateDetailedPath = (start: LatLngTuple, end: LatLngTuple): LatLngTuple[] => {
-    const result: LatLngTuple[] = [start]; const numPoints = 3;
+    const result: LatLngTuple[] = [start];
+    const numPoints = 3;
     for (let i = 1; i <= numPoints; i++) {
-      const fraction = i / (numPoints + 1); const lat = start[0] + (end[0] - start[0]) * fraction; const lng = start[1] + (end[1] - start[1]) * fraction;
-      const randomOffset = 0.0001; const randomLat = lat + (Math.random() - 0.5) * randomOffset; const randomLng = lng + (Math.random() - 0.5) * randomOffset;
+      const fraction = i / (numPoints + 1);
+      const lat = start[0] + (end[0] - start[0]) * fraction;
+      const lng = start[1] + (end[1] - start[1]) * fraction;
+      const randomOffset = 0.0001;
+      const randomLat = lat + (Math.random() - 0.5) * randomOffset;
+      const randomLng = lng + (Math.random() - 0.5) * randomOffset;
       result.push([randomLat, randomLng]);
-    } result.push(end); return result;
+    }
+    result.push(end);
+    return result;
   };
 
   const handlePathPointDrag = (id: string, newPosition: LatLngTuple) => {
-    if (!optimalPath) return; const index = parseInt(id.split('-').pop() || '0', 10); if (isNaN(index)) { console.error("Could not parse index from path point ID:", id); return; }
-    const newPath = [...optimalPath.path]; newPath[index] = newPosition; const totalDistance = calculateTotalPathDistance(newPath); const newTimeEstimate = Math.ceil(totalDistance * 1000 / 1.4);
+    if (!optimalPath) return;
+    const index = parseInt(id.split('-').pop() || '0', 10);
+    if (isNaN(index)) {
+      console.error("Could not parse index from path point ID:", id);
+      return;
+    }
+    const newPath = [...optimalPath.path];
+    newPath[index] = newPosition;
+    const totalDistance = calculateTotalPathDistance(newPath);
+    const newTimeEstimate = Math.ceil(totalDistance * 1000 / 1.4);
     setOptimalPath({ ...optimalPath, path: newPath, timeEstimate: newTimeEstimate });
   };
 
   const handleAccessPointDrag = (id: string, newPosition: LatLngTuple) => {
     setCurrentAccessPoints(prevPoints => prevPoints.map(point => point.id === id ? { ...point, position: newPosition } : point));
-    if (optimalPath && selectedCamera && optimalPath.startAccessPointId === id) { findOptimalPath(selectedCamera); }
+    if (optimalPath && selectedCamera && optimalPath.startAccessPointId === id) {
+      findOptimalPath(selectedCamera);
+    }
   };
 
   const formatTimeEstimate = (seconds: number) => {
-    if (seconds < 60) return `${seconds} sec`; const minutes = Math.floor(seconds / 60); const remainingSeconds = seconds % 60;
+    if (seconds < 60) return `${seconds} sec`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
     return remainingSeconds === 0 ? `${minutes} min` : `${minutes}m ${remainingSeconds}s`;
   };
 
@@ -319,60 +373,80 @@ const MapView: React.FC<MapViewProps> = ({
   const createAccessPointIcon = (): DivIcon | undefined => {
     if (!leafletInstance) return undefined;
     return leafletInstance.divIcon({
-      className: 'access-point-marker', html: `<div style="background-color: #3b82f6; border: 2px solid white; border-radius: 50%; width: 12px; height: 12px;"></div>`,
-      iconSize: [12, 12], iconAnchor: [6, 6], popupAnchor: [0, -8]
+      className: 'access-point-marker',
+      html: `<div style="background-color: #3b82f6; border: 2px solid white; border-radius: 50%; width: 12px; height: 12px;"></div>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+      popupAnchor: [0, -8]
     });
   };
 
   const createPathPointIcon = (isAccessPoint = false, isEndpoint = false): DivIcon | undefined => {
     if (!leafletInstance) return undefined;
     const size = isAccessPoint || isEndpoint ? 12 : 8;
-    const color = isAccessPoint ? '#3b82f6' : (isEndpoint ? '#10b981' : '#a855f7'); // Purple for intermediate
+    const color = isAccessPoint ? '#3b82f6' : (isEndpoint ? '#10b981' : '#a855f7');
     const intermediateStyle = !isAccessPoint && !isEndpoint ? 'box-shadow: 0 0 6px rgba(168, 85, 247, 0.7), 0 0 10px rgba(168, 85, 247, 0.5);' : '';
     return leafletInstance.divIcon({
       className: `path-point-marker ${isAccessPoint ? 'path-start' : ''} ${isEndpoint ? 'path-end' : ''}`,
       html: `<div style="background-color: ${color}; border: 1px solid white; border-radius: 50%; width: ${size}px; height: ${size}px; ${intermediateStyle}"></div>`,
-      iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2]
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor: [0, -size / 2]
     });
   };
 
   if (!mounted || !leafletInstance) {
-    return <div className="h-full w-full bg-gray-100 flex items-center justify-center"><p className="text-gray-500">Loading Map...</p></div>;
+    return (
+      <div className="h-full w-full bg-gray-100 flex items-center justify-center">
+        <p className="text-gray-500">Loading Map...</p>
+      </div>
+    );
   }
 
   const schoolData = SCHOOL_LOCATIONS[selectedSchool as keyof typeof SCHOOL_LOCATIONS] || SCHOOL_LOCATIONS["Piedmont Hills High School"];
-  const cameras = schoolData.cameras || [];
   const accessPoints = currentAccessPoints || [];
 
   return (
     <div className="w-full h-full relative" ref={mapContainerRef}>
       <style>{mapStyles}</style>
       <MapContainer
-        key={mapKey} center={schoolData.center} zoom={schoolData.zoom} style={{ height: '100%', width: '100%' }}
-        zoomControl={false} scrollWheelZoom={true} maxZoom={20} // Increased max zoom
+        key={mapKey}
+        center={schoolData.center}
+        zoom={schoolData.zoom}
+        style={{ height: '100%', width: '100%' }}
+        zoomControl={false}
+        scrollWheelZoom={true}
+        maxZoom={20}
       >
         <TileLayer
           key={selectedLayerKey}
           attribution={TILE_LAYERS[selectedLayerKey].attribution}
           url={TILE_LAYERS[selectedLayerKey].url}
-          maxNativeZoom={TILE_LAYERS[selectedLayerKey].maxNativeZoom} // Pass max native zoom
-          maxZoom={TILE_LAYERS[selectedLayerKey].maxZoom} // Pass overall max zoom
+          maxNativeZoom={TILE_LAYERS[selectedLayerKey].maxNativeZoom}
+          maxZoom={TILE_LAYERS[selectedLayerKey].maxZoom}
         />
         <ZoomControl position="topright" />
 
-        {cameras.map((camera) => (
-          <Marker
-            key={camera.id} position={camera.position} icon={createCustomIcon(camera.id, highlightedCamera === camera.id)}
-            eventHandlers={{ click: () => handleMarkerClick(camera.id) }} zIndexOffset={highlightedCamera === camera.id ? 1000 : 0}
+        {/* Render Camera Markers as draggable */}
+        {cameraPositions.map((camera) => (
+          <DraggableMarker
+            key={camera.id}
+            id={camera.id}
+            position={camera.position}
+            onDragEnd={handleCameraDragEnd}
+            icon={createCustomIcon(camera.id, highlightedCamera === camera.id)}
+            eventHandlers={{ click: () => handleMarkerClick(camera.id) }}
           />
         ))}
 
         {accessPoints.map((accessPoint) => (
           <DraggableMarker
-            key={accessPoint.id} id={accessPoint.id} position={accessPoint.position} onDragEnd={handleAccessPointDrag} icon={createAccessPointIcon()}
-          >
-            <Popup><div className="text-sm font-medium">{accessPoint.name}</div></Popup>
-          </DraggableMarker>
+            key={accessPoint.id}
+            id={accessPoint.id}
+            position={accessPoint.position}
+            onDragEnd={handleAccessPointDrag}
+            icon={createAccessPointIcon()}
+          />
         ))}
 
         {optimalPath && (
@@ -385,11 +459,20 @@ const MapView: React.FC<MapViewProps> = ({
                 ? leafletInstance.divIcon({
                     className: 'time-label draggable-time-label',
                     html: `<div style="background-color: white; color: #3b82f6; padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; text-align: center; border: none;">${formatTimeEstimate(optimalPath.timeEstimate)}</div>`,
-                    iconSize: [60, 20], iconAnchor: [30, 10]
+                    iconSize: [60, 20],
+                    iconAnchor: [30, 10]
                   })
                 : createPathPointIcon(false, index === optimalPath.path.length - 1);
               if (!markerIcon) return null;
-              return <DraggableMarker key={`path-point-${index}`} position={point} id={`path-point-${index}`} onDragEnd={handlePathPointDrag} icon={markerIcon} />;
+              return (
+                <DraggableMarker
+                  key={`path-point-${index}`}
+                  position={point}
+                  id={`path-point-${index}`}
+                  onDragEnd={handlePathPointDrag}
+                  icon={markerIcon}
+                />
+              );
             })}
           </>
         )}
@@ -398,17 +481,25 @@ const MapView: React.FC<MapViewProps> = ({
       {mapError && (
         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded shadow-md z-50">
           <p className="text-sm">{mapError}</p>
-          <button className="mt-1 text-xs text-blue-600 hover:text-blue-800" onClick={() => { setMapError(null); setMapKey(Date.now()); }}>Reload Map</button>
+          <button
+            className="mt-1 text-xs text-blue-600 hover:text-blue-800"
+            onClick={() => { setMapError(null); setMapKey(Date.now()); }}
+          >
+            Reload Map
+          </button>
         </div>
       )}
 
       <div className="absolute top-4 left-4 z-[1000] bg-white shadow-lg rounded-md p-1 flex flex-col space-y-1">
         {(Object.keys(TILE_LAYERS) as Array<keyof typeof TILE_LAYERS>).map((key) => (
           <button
-            key={key} onClick={() => setSelectedLayerKey(key)}
+            key={key}
+            onClick={() => setSelectedLayerKey(key)}
             className={`px-2 py-1 text-xs rounded transition-colors ${selectedLayerKey === key ? 'bg-blue-500 text-white font-semibold' : 'bg-white text-gray-700 hover:bg-gray-100'}`}
             style={{ textTransform: 'capitalize' }}
-          >{key}</button>
+          >
+            {key}
+          </button>
         ))}
       </div>
     </div>

@@ -235,10 +235,8 @@ export default function Dashboard() {
   const handleCameraAssignment = async (cameraId: string, deviceId: string | null) => {
     const newAssignments = { ...cameraAssignments };
     
-    // If there was a previous assignment, unregister it
-    if (cameraAssignments[cameraId]) {
-      processingManager.unregisterCamera(cameraId);
-    }
+    // First, unregister this camera from any previous device
+    await processingManager.unregisterCamera(cameraId);
     
     // Update assignments and status
     if (deviceId) {
