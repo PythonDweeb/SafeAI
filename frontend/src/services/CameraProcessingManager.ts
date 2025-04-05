@@ -256,32 +256,31 @@ export class CameraProcessingManager {
         context.drawImage(camera.videoElement, 0, 0, camera.canvas.width, camera.canvas.height);
 
         const imageData = this.processingService.canvasToBase64(camera.canvas);
-
-        // Process frame for each camera using this device
+        
+        // Process frame once for the device
+        const result = await this.processingService.processFrame(imageData);
+        
+        // Share the result with all cameras using this device
         const activeCameras = this.deviceToCameras.get(deviceId);
         if (activeCameras && activeCameras.size > 0) {
-          for (const cameraId of activeCameras) {
-            try {
-              const result = await this.processingService.processFrame(imageData, cameraId);
-              
-              if (result.threats.length > 0) {
-                const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
-                const newStatus: CameraStatus = 
-                  highestThreat.confidence > 0.8 ? 'HIGH' :
-                  highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
-                this.updateCameraStatus(deviceId, newStatus);
-                
-                // Store the processed frame with threat boxes for this camera
-                const nodeStatus = camera.nodeStatuses.get(cameraId);
-                if (nodeStatus) {
-                  nodeStatus.lastProcessedFrame = result.processed_image;
-                }
-              } else {
-                this.updateCameraStatus(deviceId, 'NORMAL');
+          if (result.threats.length > 0) {
+            const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
+            const newStatus: CameraStatus = 
+              highestThreat.confidence > 0.8 ? 'HIGH' :
+              highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
+            
+            // Update status for all cameras using this device
+            this.updateCameraStatus(deviceId, newStatus);
+            
+            // Store the processed frame with threat boxes for all cameras
+            activeCameras.forEach(cameraId => {
+              const nodeStatus = camera.nodeStatuses.get(cameraId);
+              if (nodeStatus) {
+                nodeStatus.lastProcessedFrame = result.processed_image;
               }
-            } catch (error) {
-              console.error(`Error processing frame for camera ${cameraId}:`, error);
-            }
+            });
+          } else {
+            this.updateCameraStatus(deviceId, 'NORMAL');
           }
         }
 

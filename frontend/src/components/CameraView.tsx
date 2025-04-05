@@ -88,7 +88,7 @@ const CameraView: React.FC<CameraViewProps> = ({
 
       processingRef.current = true;
       const imageData = processingService.canvasToBase64(canvasRef.current);
-      const result = await processingService.processFrame(imageData, cameraId);
+      const result = await processingService.processFrame(imageData);
       
       // Always update threats and status
       setThreats(result.threats);

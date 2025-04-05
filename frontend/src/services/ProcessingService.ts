@@ -13,9 +13,9 @@ export class ProcessingService {
   }
 
   // Process a single frame through the backend
-  public async processFrame(imageData: string, cameraId: string): Promise<any> {
+  public async processFrame(imageData: string): Promise<any> {
     try {
-      const response = await fetch(`${this.API_BASE_URL}/detect/${cameraId}`, {
+      const response = await fetch(`${this.API_BASE_URL}/detect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -40,9 +40,9 @@ export class ProcessingService {
     return canvas.toDataURL('image/jpeg').split(',')[1];
   }
 
-  public async checkHealth(cameraId: string): Promise<boolean> {
+  public async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.API_BASE_URL}/health/${cameraId}`);
+      const response = await fetch(`${this.API_BASE_URL}/health`);
       if (!response.ok) {
         return false;
       }
