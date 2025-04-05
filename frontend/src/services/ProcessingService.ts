@@ -27,14 +27,7 @@ export class ProcessingService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      
-      // Ensure we have the processed image with red boxes
-      if (!result.processed_image) {
-        console.warn('No processed image returned from backend');
-      }
-      
-      return result;
+      return await response.json();
     } catch (error) {
       console.error('Error processing frame:', error);
       throw error;
