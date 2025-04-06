@@ -26,7 +26,7 @@ export class CameraProcessingManager {
   private deviceToCameras: Map<string, Set<string>> = new Map();
   private cameraToDevice: Map<string, string> = new Map();
   private readonly PROCESSING_INTERVAL = 1000; // 1 second
-  private readonly STATUS_PERSISTENCE = 1000; // Increase to 10 seconds (from 2000)
+  private readonly STATUS_PERSISTENCE = 2000; // How long to maintain threat status
 
   private constructor() {
     this.processingService = ProcessingService.getInstance();
@@ -84,13 +84,14 @@ export class CameraProcessingManager {
         nodeStatus.statusTimeout = null;
       }
 
-      // Only update if status changed or is a non-NORMAL status
-      if (nodeStatus.currentStatus !== newStatus || newStatus !== 'NORMAL') {
-        // Update status immediately
-        nodeStatus.currentStatus = newStatus;
-        nodeStatus.onStatusUpdate(newStatus);
+      // Update status immediately
+      nodeStatus.currentStatus = newStatus;
+      nodeStatus.onStatusUpdate(newStatus);
 
-        // Emit global status update event with a unique timestamp to force updates
+      // Emit global status update event with a unique timestamp to force updates
+      // Ensure this event is properly captured by all components by using a setTimeout
+      // This allows the event to be dispatched asynchronously after the current execution context
+      setTimeout(() => {
         const event = new CustomEvent('cameraStatusChanged', {
           detail: { 
             cameraId, 
@@ -100,28 +101,21 @@ export class CameraProcessingManager {
         });
         console.log(`Emitting status event for camera ${cameraId}: ${newStatus}`);
         window.dispatchEvent(event);
+      }, 0);
 
-        // Force a re-render by dispatching another custom event for MapView and other components
-        const mapUpdateEvent = new CustomEvent('mapStatusUpdate', {
-          detail: { 
-            cameraId, 
-            status: newStatus,
-            timestamp: Date.now()
-          }
-        });
-        window.dispatchEvent(mapUpdateEvent);
-        
+      if (newStatus !== 'NORMAL') {
         // For non-NORMAL status, set timeout to revert
-        if (newStatus !== 'NORMAL') {
-          nodeStatus.lastThreatTime = Date.now();
-          nodeStatus.statusTimeout = setTimeout(() => {
-            const currentCamera = this.cameras.get(deviceId);
-            const currentNodeStatus = currentCamera?.nodeStatuses.get(cameraId);
-            if (currentNodeStatus) {
-              currentNodeStatus.currentStatus = 'NORMAL';
-              currentNodeStatus.onStatusUpdate('NORMAL');
-              currentNodeStatus.statusTimeout = null;
-              // Emit global status update event for NORMAL status with timestamp
+        nodeStatus.lastThreatTime = Date.now();
+        nodeStatus.statusTimeout = setTimeout(() => {
+          const currentCamera = this.cameras.get(deviceId);
+          const currentNodeStatus = currentCamera?.nodeStatuses.get(cameraId);
+          if (currentNodeStatus) {
+            currentNodeStatus.currentStatus = 'NORMAL';
+            currentNodeStatus.onStatusUpdate('NORMAL');
+            currentNodeStatus.statusTimeout = null;
+            // Emit global status update event for NORMAL status with timestamp
+            // Again, use setTimeout to ensure asynchronous propagation
+            setTimeout(() => {
               const normalEvent = new CustomEvent('cameraStatusChanged', {
                 detail: { 
                   cameraId, 
@@ -131,19 +125,9 @@ export class CameraProcessingManager {
               });
               console.log(`Emitting NORMAL status event for camera ${cameraId} (timeout)`);
               window.dispatchEvent(normalEvent);
-              
-              // Also update map and other components
-              const mapNormalEvent = new CustomEvent('mapStatusUpdate', {
-                detail: { 
-                  cameraId, 
-                  status: 'NORMAL',
-                  timestamp: Date.now()
-                }
-              });
-              window.dispatchEvent(mapNormalEvent);
-            }
-          }, this.STATUS_PERSISTENCE);
-        }
+            }, 0);
+          }
+        }, this.STATUS_PERSISTENCE);
       }
     });
   }
