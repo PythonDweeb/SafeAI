@@ -269,9 +269,9 @@ class ThreatDetectionSystem:
                    
                    # Define the three threat types we want to detect
                    threat_types = [
-                       {"query": "weapon or scissors", "level": "HIGH", "type": "weapon"},
-                       {"query": "man in a hoodie with hood up", "level": "MEDIUM", "type": "suspicious person"},
-                       {"query": "pencil or pen", "level": "LOW", "type": "writing implement"}
+                       {"query": "knife or gun or lethal weapon", "level": "HIGH", "type": "weapon"},
+                       {"query": "scissors or sharp tools", "level": "MEDIUM", "type": "suspicious person"},
+                       {"query": "pen, pencil, or water bottle", "level": "LOW", "type": "writing implement"}
                    ]
                    
                    all_threats = []
