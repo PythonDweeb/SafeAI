@@ -604,7 +604,7 @@ export default function Dashboard() {
             {highlightedCamera && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 400, opacity: 1 }}
+                animate={{ width: 'clamp(600px, 100%, 1600px)', opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                 className="h-full bg-white border-l border-gray-200 shadow-lg z-10 overflow-hidden relative"
