@@ -227,8 +227,17 @@ export default function Dashboard() {
     // Auto-trigger analysis when a camera is highlighted
     const cameraInfo = getCameraInfo(selectedSchool, cameraId);
     if (cameraInfo) {
+      // Get current camera status from the state
+      const currentStatus = cameraStatuses[cameraId] || 'NORMAL';
+      
+      // Create a new cameraInfo object with the current status
+      const cameraInfoWithCurrentStatus = {
+        ...cameraInfo,
+        status: currentStatus
+      };
+      
       setIsAnalyzing(true);
-      aiAnalysisService.analyzeSecurityThreat(cameraInfo, selectedSchool)
+      aiAnalysisService.analyzeSecurityThreat(cameraInfoWithCurrentStatus, selectedSchool)
         .then(result => {
           setAiAnalysis(result);
           setIsAnalyzing(false);
@@ -254,10 +263,19 @@ export default function Dashboard() {
     const cameraInfo = getCameraInfo(selectedSchool, highlightedCamera);
     if (!cameraInfo) return;
     
+    // Get current camera status from the state
+    const currentStatus = cameraStatuses[highlightedCamera] || 'NORMAL';
+    
+    // Create a new cameraInfo object with the current status
+    const cameraInfoWithCurrentStatus = {
+      ...cameraInfo,
+      status: currentStatus
+    };
+    
     setIsAnalyzing(true);
     try {
       const analysisResult = await aiAnalysisService.analyzeSecurityThreat(
-        cameraInfo,
+        cameraInfoWithCurrentStatus,
         selectedSchool
       );
       setAiAnalysis(analysisResult);
