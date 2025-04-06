@@ -178,12 +178,6 @@ export default function Dashboard() {
             : threat
         );
       });
-      
-      // Force a global refresh of camera statuses by creating a new reference for the cameraStatuses object
-      // This helps ensure all components using cameraStatuses re-render
-      setTimeout(() => {
-        setCameraStatuses(prev => ({ ...prev }));
-      }, 0);
     };
 
     window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
@@ -194,7 +188,15 @@ export default function Dashboard() {
   
   // Update camera statuses when school changes
   useEffect(() => {
-    // Reset all camera statuses to NORMAL when school changes
+    // Unregister all cameras from the previous school
+    Object.keys(SCHOOL_CAMERA_INFO["Piedmont Hills High School"]).forEach(cameraId => {
+      processingManager.unregisterCamera(cameraId);
+    });
+    Object.keys(SCHOOL_CAMERA_INFO["Los Altos High School"]).forEach(cameraId => {
+      processingManager.unregisterCamera(cameraId);
+    });
+
+    // Reset all camera statuses to NORMAL
     const newStatuses: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
     Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
       newStatuses[cameraId] = 'NORMAL';
@@ -310,40 +312,111 @@ export default function Dashboard() {
   // Load saved camera assignments on mount
   useEffect(() => {
     const savedAssignments = localStorage.getItem('cameraAssignments');
-    if (savedAssignments) {
-      const assignments = JSON.parse(savedAssignments);
-      setCameraAssignments(assignments);
-      
-      // Initialize all cameras to NORMAL status
-      const initialStatuses: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
-      Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
-        initialStatuses[cameraId] = 'NORMAL';
-      });
-      
-      // Start processing only for assigned cameras
-      Object.entries(assignments).forEach(([cameraId, deviceId]) => {
-        if (deviceId) {
-          processingManager.registerCamera(
-            cameraId,
-            deviceId as string,
-            (status) => {
-              setCameraStatuses(prev => ({
-                ...prev,
-                [cameraId]: status
-              }));
-            }
-          );
-        }
-      });
-      
-      setCameraStatuses(initialStatuses);
-    }
-  }, []);
+    const assignments = savedAssignments ? JSON.parse(savedAssignments) : {};
+    setCameraAssignments(assignments);
+    
+    // Initialize all cameras to NORMAL status
+    const initialStatuses: Record<string, 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'> = {};
+    Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(cameraId => {
+      initialStatuses[cameraId] = 'NORMAL';
+    });
+    
+    // Try to get a default device for unassigned cameras
+    const getDefaultDevice = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        // Take the first available device as default if any
+        const defaultDeviceId = videoDevices.length > 0 ? videoDevices[0].deviceId : null;
+        
+        // Register ALL cameras for processing, regardless of assignment
+        Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(async (cameraId) => {
+          // For assigned cameras, use their assigned device
+          if (assignments[cameraId]) {
+            await processingManager.registerCamera(
+              cameraId,
+              assignments[cameraId] as string,
+              (status) => {
+                setCameraStatuses(prev => ({
+                  ...prev,
+                  [cameraId]: status
+                }));
+                
+                // When status changes, update active threats immediately
+                setActiveThreats(prev => 
+                  prev.map(threat => 
+                    threat.cameraId === cameraId 
+                      ? { ...threat, status, timestamp: 'Now' } 
+                      : threat
+                  )
+                );
+                
+                // Dispatch a global event to make sure all components update
+                const event = new CustomEvent('cameraStatusChanged', {
+                  detail: { 
+                    cameraId, 
+                    status,
+                    timestamp: Date.now()
+                  }
+                });
+                setTimeout(() => {
+                  window.dispatchEvent(event);
+                }, 0);
+              }
+            );
+          } 
+          // For unassigned cameras, if we have a default device, use it
+          else if (defaultDeviceId) {
+            await processingManager.registerCamera(
+              cameraId,
+              defaultDeviceId,
+              (status) => {
+                setCameraStatuses(prev => ({
+                  ...prev,
+                  [cameraId]: status
+                }));
+                
+                // Update active threats immediately
+                setActiveThreats(prev => 
+                  prev.map(threat => 
+                    threat.cameraId === cameraId 
+                      ? { ...threat, status, timestamp: 'Now' } 
+                      : threat
+                  )
+                );
+                
+                // Dispatch a global event
+                const event = new CustomEvent('cameraStatusChanged', {
+                  detail: { 
+                    cameraId, 
+                    status,
+                    timestamp: Date.now()
+                  }
+                });
+                setTimeout(() => {
+                  window.dispatchEvent(event);
+                }, 0);
+              }
+            );
+          }
+        });
+      } catch (error) {
+        console.error('Error getting default device:', error);
+      }
+    };
+    
+    getDefaultDevice();
+    setCameraStatuses(initialStatuses);
+  }, [selectedSchool]);
 
   // Clean up all camera processing on unmount
   useEffect(() => {
     return () => {
-      Object.keys(cameraAssignments).forEach(cameraId => {
+      // Unregister all cameras, not just assigned ones
+      Object.keys(SCHOOL_CAMERA_INFO["Piedmont Hills High School"]).forEach(cameraId => {
+        processingManager.unregisterCamera(cameraId);
+      });
+      Object.keys(SCHOOL_CAMERA_INFO["Los Altos High School"]).forEach(cameraId => {
         processingManager.unregisterCamera(cameraId);
       });
     };

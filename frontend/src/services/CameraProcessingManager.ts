@@ -76,7 +76,23 @@ export class CameraProcessingManager {
     // Update status for all nodes using this specific device
     cameraIds.forEach(cameraId => {
       const nodeStatus = camera.nodeStatuses.get(cameraId);
-      if (!nodeStatus) return;
+      
+      // Even if no node status exists, we should still dispatch the event
+      if (!nodeStatus) {
+        // Dispatch global status update event even without a node status
+        setTimeout(() => {
+          const event = new CustomEvent('cameraStatusChanged', {
+            detail: { 
+              cameraId, 
+              status: newStatus,
+              timestamp: Date.now()
+            }
+          });
+          console.log(`Emitting status event for camera ${cameraId} (no nodeStatus): ${newStatus}`);
+          window.dispatchEvent(event);
+        }, 0);
+        return;
+      }
 
       // Clear any existing status timeout
       if (nodeStatus.statusTimeout) {
@@ -89,8 +105,6 @@ export class CameraProcessingManager {
       nodeStatus.onStatusUpdate(newStatus);
 
       // Emit global status update event with a unique timestamp to force updates
-      // Ensure this event is properly captured by all components by using a setTimeout
-      // This allows the event to be dispatched asynchronously after the current execution context
       setTimeout(() => {
         const event = new CustomEvent('cameraStatusChanged', {
           detail: { 
@@ -114,7 +128,6 @@ export class CameraProcessingManager {
             currentNodeStatus.onStatusUpdate('NORMAL');
             currentNodeStatus.statusTimeout = null;
             // Emit global status update event for NORMAL status with timestamp
-            // Again, use setTimeout to ensure asynchronous propagation
             setTimeout(() => {
               const normalEvent = new CustomEvent('cameraStatusChanged', {
                 detail: { 
