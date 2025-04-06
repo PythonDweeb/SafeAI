@@ -547,6 +547,14 @@ export default function Dashboard() {
     };
   }, [cameraAssignments]);
 
+  // *** SEARCH FILTERING LOGIC ADDED HERE ***  
+  // Filter cameras based on the search query (searching by name or location)
+  const filteredCameras = Object.entries(SCHOOL_CAMERA_INFO[selectedSchool]).filter(
+    ([, info]) =>
+      info.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      info.location.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-white">
       <Header 
@@ -568,14 +576,14 @@ export default function Dashboard() {
             <SearchBar 
               searchQuery={searchQuery} 
               setSearchQuery={setSearchQuery} 
-              resultCount={activeThreats.length} 
+              resultCount={filteredCameras.length} 
             />
           </div>
           
           <div className="flex-1 overflow-y-auto p-3 bg-gray-50 transition-all duration-300">
-            {/* Active Cameras */}
+            {/* Active Cameras - Render filtered list */}
             <div className="space-y-3">
-              {Object.entries(SCHOOL_CAMERA_INFO[selectedSchool]).map(([cameraId, info]) => (
+              {filteredCameras.map(([cameraId, info]) => (
                 <ThreatItem 
                   key={cameraId}
                   id={cameraId}
