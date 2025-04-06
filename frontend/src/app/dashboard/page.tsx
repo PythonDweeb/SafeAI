@@ -165,31 +165,19 @@ export default function Dashboard() {
       
       // Force a re-render of the entire state to make sure all UI components update
       setCameraStatuses(prev => {
-        // Create a completely new object to ensure React detects the change
-        const newStatuses = { ...prev };
-        // Update the specific camera status
-        newStatuses[cameraId] = status;
-        
+        const newStatuses = { ...prev, [cameraId]: status };
         console.log(`Dashboard: Camera ${cameraId} status updated to ${status}${timestamp ? ` at ${new Date(timestamp).toLocaleTimeString()}` : ''}`);
-        
-        // Force a re-render by slightly delaying the state update with a small timeout
-        // This helps ensure all components respond to the status change
         return newStatuses;
       });
 
       // Update active threats with timestamp and force a complete state update
-      // Use a slight delay to ensure this runs after the camera status update
-      setTimeout(() => {
-        setActiveThreats(prev => {
-          // Create a completely new array to force React to detect the change
-          const newThreats = prev.map(threat => 
-            threat.cameraId === cameraId 
-              ? { ...threat, status, timestamp: 'Now' } 
-              : { ...threat } // Clone all threats to force full re-render
-          );
-          return newThreats;
-        });
-      }, 10);
+      setActiveThreats(prev => {
+        return prev.map(threat => 
+          threat.cameraId === cameraId 
+            ? { ...threat, status, timestamp: 'Now' } 
+            : threat
+        );
+      });
     };
 
     window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);

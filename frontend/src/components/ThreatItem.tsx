@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 export interface ThreatItemProps {
   id: string;
@@ -14,9 +14,34 @@ const ThreatItem: React.FC<ThreatItemProps> = ({
   cameraId, 
   location, 
   timestamp, 
-  status, 
+  status: initialStatus, 
   onThreatClick 
 }) => {
+  // Use local state to track status so it can update independently
+  const [status, setStatus] = useState<'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'>(initialStatus);
+
+  // Update local status when prop changes
+  useEffect(() => {
+    setStatus(initialStatus);
+  }, [initialStatus]);
+
+  // Listen for camera status changes
+  useEffect(() => {
+    const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
+      // Only update if this is the camera we're displaying
+      if (event.detail.cameraId === cameraId) {
+        setStatus(event.detail.status);
+        console.log(`ThreatItem: Status updated for ${cameraId} to ${event.detail.status}`);
+      }
+    };
+
+    window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    };
+  }, [cameraId]);
+
   const getStatusIcon = () => {
     switch (status) {
       case 'HIGH':
