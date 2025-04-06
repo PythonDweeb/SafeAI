@@ -88,10 +88,15 @@ export class CameraProcessingManager {
       nodeStatus.currentStatus = newStatus;
       nodeStatus.onStatusUpdate(newStatus);
 
-      // Emit global status update event
+      // Emit global status update event with a unique timestamp to force updates
       const event = new CustomEvent('cameraStatusChanged', {
-        detail: { cameraId, status: newStatus }
+        detail: { 
+          cameraId, 
+          status: newStatus,
+          timestamp: Date.now() // Add timestamp to ensure uniqueness
+        }
       });
+      console.log(`Emitting status event for camera ${cameraId}: ${newStatus}`);
       window.dispatchEvent(event);
 
       if (newStatus !== 'NORMAL') {
@@ -104,10 +109,15 @@ export class CameraProcessingManager {
             currentNodeStatus.currentStatus = 'NORMAL';
             currentNodeStatus.onStatusUpdate('NORMAL');
             currentNodeStatus.statusTimeout = null;
-            // Emit global status update event for NORMAL status
+            // Emit global status update event for NORMAL status with timestamp
             const normalEvent = new CustomEvent('cameraStatusChanged', {
-              detail: { cameraId, status: 'NORMAL' }
+              detail: { 
+                cameraId, 
+                status: 'NORMAL',
+                timestamp: Date.now() // Add timestamp to ensure uniqueness
+              }
             });
+            console.log(`Emitting NORMAL status event for camera ${cameraId} (timeout)`);
             window.dispatchEvent(normalEvent);
           }
         }, this.STATUS_PERSISTENCE);

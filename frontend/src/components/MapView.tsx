@@ -289,6 +289,29 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [highlightedCamera, selectedSchool, mounted, leafletInstance, currentAccessPoints, cameraPositions]);
 
+  // Add direct event listener for camera status changes
+  useEffect(() => {
+    if (!mounted) return;
+    
+    // Listen for camera status changes directly
+    const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
+      const { cameraId, status } = event.detail;
+      // Force map to update when camera status changes
+      if (cameraPositions.some(cam => cam.id === cameraId)) {
+        console.log(`MapView: Camera ${cameraId} status updated to ${status}`);
+        // Force a re-render by updating the map key
+        if (map) {
+          map.invalidateSize();
+        }
+      }
+    };
+
+    window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    return () => {
+      window.removeEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    };
+  }, [mounted, cameraPositions, map]);
+
   // New effect: When the selected map type changes, force the map to recalc its dimensions.
   useEffect(() => {
     if (map) {
@@ -484,7 +507,7 @@ const MapView: React.FC<MapViewProps> = ({
 
   return (
     <div className="w-full h-full relative" ref={mapContainerRef}>
-      <style>{mapStyles}</style>
+      <style jsx global>{mapStyles}</style>
       <MapContainer
         key={mapKey}
         center={schoolData.center}
@@ -492,12 +515,11 @@ const MapView: React.FC<MapViewProps> = ({
         style={{ height: '100%', width: '100%' }}
         zoomControl={false}
         scrollWheelZoom={true}
-        maxZoom={20}
-        whenCreated={(mapInstance) => {
-          setMap(mapInstance);
-          mapInstance.on('zoomend', () => {
-            mapInstance.invalidateSize();
-          });
+        maxZoom={TILE_LAYERS[selectedLayerKey].maxZoom}
+        ref={(mapRef) => {
+          if (mapRef) {
+            setMap(mapRef);
+          }
         }}
       >
         <TileLayer

@@ -160,21 +160,24 @@ export default function Dashboard() {
   
   // Listen for camera status changes
   useEffect(() => {
-    const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
-      const { cameraId, status } = event.detail;
-      setCameraStatuses(prev => ({
-        ...prev,
-        [cameraId]: status
-      }));
+    const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'; timestamp?: number }>) => {
+      const { cameraId, status, timestamp } = event.detail;
+      
+      // Force a re-render of the entire state to make sure all UI components update
+      setCameraStatuses(prev => {
+        const newStatuses = { ...prev, [cameraId]: status };
+        console.log(`Dashboard: Camera ${cameraId} status updated to ${status}${timestamp ? ` at ${new Date(timestamp).toLocaleTimeString()}` : ''}`);
+        return newStatuses;
+      });
 
-      // Also update active threats
-      setActiveThreats(prev => 
-        prev.map(threat => 
+      // Update active threats with timestamp and force a complete state update
+      setActiveThreats(prev => {
+        return prev.map(threat => 
           threat.cameraId === cameraId 
             ? { ...threat, status, timestamp: 'Now' } 
             : threat
-        )
-      );
+        );
+      });
     };
 
     window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
