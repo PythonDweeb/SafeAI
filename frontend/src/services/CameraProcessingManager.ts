@@ -1,4 +1,5 @@
 import { ProcessingService } from './ProcessingService';
+import CameraStreamManager from './CameraStreamManager';
 
 type CameraStatus = 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
@@ -17,11 +18,13 @@ interface CameraProcessingInfo {
     statusTimeout: NodeJS.Timeout | null;
   }>;
   processedFrame: string | null;
+  streamCleanup: (() => void) | null;
 }
 
 export class CameraProcessingManager {
   private static instance: CameraProcessingManager;
   private processingService: ProcessingService;
+  private streamManager: CameraStreamManager;
   private cameras: Map<string, CameraProcessingInfo> = new Map();
   private deviceToCameras: Map<string, Set<string>> = new Map();
   private cameraToDevice: Map<string, string> = new Map();
@@ -30,6 +33,7 @@ export class CameraProcessingManager {
 
   private constructor() {
     this.processingService = ProcessingService.getInstance();
+    this.streamManager = CameraStreamManager.getInstance();
   }
 
   public static getInstance(): CameraProcessingManager {
@@ -45,9 +49,12 @@ export class CameraProcessingManager {
       if (camera.processingInterval) {
         clearTimeout(camera.processingInterval);
       }
-      if (camera.stream) {
-        camera.stream.getTracks().forEach(track => track.stop());
+      
+      // Release the stream through the stream manager
+      if (camera.streamCleanup) {
+        camera.streamCleanup();
       }
+      
       camera.videoElement.remove();
       const context = camera.canvas.getContext('2d');
       if (context) {
@@ -186,30 +193,38 @@ export class CameraProcessingManager {
 
         const canvas = document.createElement('canvas');
         
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: deviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        });
-
-        videoElement.srcObject = stream;
-        await videoElement.play();
-
+        // Instead of directly acquiring the stream, use the stream manager
         camera = {
           deviceId,
-          stream,
+          stream: null, // Will be set when the stream manager provides it
           videoElement,
           canvas,
           processingInterval: null,
           lastProcessedTime: 0,
           nodeStatuses: new Map(),
-          processedFrame: null
+          processedFrame: null,
+          streamCleanup: null
         };
 
+        // Register with the stream manager to get the shared stream
+        const streamCleanup = this.streamManager.requestStream(deviceId, (stream) => {
+          if (stream) {
+            // Got a valid stream from the manager
+            camera!.stream = stream;
+            videoElement.srcObject = stream;
+            videoElement.play().catch(error => {
+              console.error(`Error playing video for device ${deviceId}:`, error);
+            });
+            
+            // Start processing once we have the stream
+            this.startProcessing(deviceId);
+          } else {
+            console.error(`Failed to get stream for device ${deviceId}`);
+          }
+        });
+        
+        camera.streamCleanup = streamCleanup;
         this.cameras.set(deviceId, camera);
-        this.startProcessing(deviceId); // Start processing immediately for new device
       }
 
       // Update mappings
@@ -271,57 +286,26 @@ export class CameraProcessingManager {
       camera.processingInterval = null;
     }
 
-    // Use more conservative processing settings to reduce lag
-    const PROCESSING_INTERVAL = 2000; // 2 seconds between frames
-    const MAX_PROCESSING_TIME = 3000; // 3 seconds max processing time
-
-    let isCurrentlyProcessing = false;
-
     const processFrame = async () => {
       try {
-        // Skip if we're still processing the previous frame
-        if (isCurrentlyProcessing) {
-          console.log(`Skipping frame processing for ${deviceId} - previous frame still processing`);
-          return;
-        }
-
         // Ensure camera is still registered and streaming
         if (!this.cameras.has(deviceId) || !camera.stream) {
           this.stopProcessing(deviceId);
           return;
         }
 
-        // Mark as processing
-        isCurrentlyProcessing = true;
-
-        // Set canvas dimensions to match video but at lower resolution to improve performance
-        const scaleDown = 0.5; // Process at half resolution
-        camera.canvas.width = camera.videoElement.videoWidth * scaleDown;
-        camera.canvas.height = camera.videoElement.videoHeight * scaleDown;
+        // Set canvas dimensions to match video
+        camera.canvas.width = camera.videoElement.videoWidth;
+        camera.canvas.height = camera.videoElement.videoHeight;
 
         // Draw the current frame to canvas
-        const context = camera.canvas.getContext('2d', { alpha: false }); // Disable alpha for performance
+        const context = camera.canvas.getContext('2d');
         if (!context) return;
-        
-        // Draw resized frame for better performance
-        context.drawImage(
-          camera.videoElement, 
-          0, 0, camera.videoElement.videoWidth, camera.videoElement.videoHeight,
-          0, 0, camera.canvas.width, camera.canvas.height
-        );
-
-        // Set a timeout to prevent processing from hanging indefinitely
-        const processingTimeout = setTimeout(() => {
-          console.warn(`Processing timed out for device ${deviceId}`);
-          isCurrentlyProcessing = false;
-        }, MAX_PROCESSING_TIME);
+        context.drawImage(camera.videoElement, 0, 0, camera.canvas.width, camera.canvas.height);
 
         // Process the frame
         const imageData = this.processingService.canvasToBase64(camera.canvas);
         const result = await this.processingService.processFrame(imageData);
-
-        // Clear timeout as processing completed
-        clearTimeout(processingTimeout);
 
         // Store the processed frame with red boxes
         if (result.processed_image) {
@@ -339,12 +323,8 @@ export class CameraProcessingManager {
           // Always update to NORMAL when no threats are detected
           this.updateCameraStatus(deviceId, 'NORMAL');
         }
-
-        // Mark as no longer processing
-        isCurrentlyProcessing = false;
       } catch (error) {
         console.error(`Error processing frame for device ${deviceId}:`, error);
-        isCurrentlyProcessing = false;
       }
     };
 
@@ -355,7 +335,7 @@ export class CameraProcessingManager {
         return;
       }
       processFrame();
-      camera.processingInterval = setTimeout(process, PROCESSING_INTERVAL);
+      camera.processingInterval = setTimeout(process, 1500); // Match backend's min_process_interval
     };
 
     // Start processing immediately

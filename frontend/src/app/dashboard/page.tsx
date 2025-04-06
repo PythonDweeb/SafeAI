@@ -323,8 +323,8 @@ export default function Dashboard() {
       // Randomly select a camera to "detect" a threat on
       const randomCameraId = allCameraIds[Math.floor(Math.random() * allCameraIds.length)];
       
-      // Randomly determine a threat status (or NORMAL) - but make NORMAL more common to reduce visual noise
-      const statuses: ('NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW')[] = ['NORMAL', 'NORMAL', 'NORMAL', 'NORMAL', 'NORMAL', 'LOW', 'MEDIUM', 'HIGH'];
+      // Randomly determine a threat status (or NORMAL)
+      const statuses: ('NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW')[] = ['NORMAL', 'NORMAL', 'NORMAL', 'LOW', 'MEDIUM', 'HIGH'];
       const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
       
       // Update camera status state
@@ -350,9 +350,9 @@ export default function Dashboard() {
           timestamp: Date.now()
         }
       });
-      
-      // Throttle event dispatch to reduce UI updates
-      window.dispatchEvent(event);
+      setTimeout(() => {
+        window.dispatchEvent(event);
+      }, 0);
       
       console.log(`Simulated ${randomStatus} threat for camera ${randomCameraId}`);
       
@@ -379,22 +379,20 @@ export default function Dashboard() {
               timestamp: Date.now()
             }
           });
-          window.dispatchEvent(normalEvent);
+          setTimeout(() => {
+            window.dispatchEvent(normalEvent);
+          }, 0);
           
           console.log(`Reverted camera ${randomCameraId} to NORMAL status`);
-        }, 5000); // Longer revert time to reduce update frequency
+        }, 3000); // Revert after 3 seconds
       }
     };
     
     // Set up simulation interval only if no cameras are assigned
     let simulationInterval: NodeJS.Timeout | null = null;
     if (!hasAssignedCameras) {
-      // Use a much slower simulation rate to reduce load
-      simulationInterval = setInterval(simulateThreatDetection, 10000); // Simulate only every 10 seconds
+      simulationInterval = setInterval(simulateThreatDetection, 5000); // Simulate every 5 seconds
       console.log("Starting threat detection simulation (no cameras assigned)");
-      
-      // Run it once immediately
-      simulateThreatDetection();
     }
     
     return () => {

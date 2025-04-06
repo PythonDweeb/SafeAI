@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ProcessingService } from '@/services/ProcessingService';
 import { CameraProcessingManager } from '@/services/CameraProcessingManager';
+import CameraStreamManager from '@/services/CameraStreamManager';
 
 interface CameraViewProps {
   cameraId: string;
@@ -45,7 +46,9 @@ const CameraView: React.FC<CameraViewProps> = ({
   const lastProcessedTimeRef = useRef<number>(0);
   const PROCESSING_INTERVAL = 1000; // Process every second
   const processingManager = CameraProcessingManager.getInstance();
+  const streamManager = CameraStreamManager.getInstance();
   const processedFrameInterval = useRef<NodeJS.Timeout | null>(null);
+  const streamCleanupRef = useRef<(() => void) | null>(null);
 
   // Update selected device when initialDeviceId changes
   useEffect(() => {
@@ -182,126 +185,56 @@ const CameraView: React.FC<CameraViewProps> = ({
     };
   }, [videoRef.current]);
 
-  // Start camera stream when selected device changes
+  // Start camera stream when selected device changes - use CameraStreamManager
   useEffect(() => {
     if (!selectedDeviceId) {
       if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+        // Don't actually stop the stream - just release our reference
         setStream(null);
       }
+      
+      // Clean up the stream request
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
+        streamCleanupRef.current = null;
+      }
+      
       stopProcessing();
       return;
     }
 
-    let isMounted = true; // Flag to track if component is still mounted
-    let initTimeout: NodeJS.Timeout | null = null;
+    // Clean up any previous stream request
+    if (streamCleanupRef.current) {
+      streamCleanupRef.current();
+    }
 
-    const startCamera = async () => {
-      try {
-        // Clear any timeout
-        if (initTimeout) {
-          clearTimeout(initTimeout);
-          initTimeout = null;
-        }
-
-        // Stop any existing stream
-        if (stream) {
-          stream.getTracks().forEach(track => track.stop());
-          stopProcessing();
-        }
-
-        // Add a small delay to ensure previous stream is fully stopped
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        if (!isMounted) return; // Check if component is still mounted
-
-        setIsProcessing(true);
-        setError(null);
-
-        // Set a timeout to handle camera initialization failure
-        initTimeout = setTimeout(() => {
-          if (isMounted) {
-            setError('Camera initialization timed out. Please try a different camera.');
-            setIsProcessing(false);
-          }
-        }, 10000); // 10 second timeout for camera initialization
-
-        // Attempt to access the camera with a more reliable approach
-        console.log(`Attempting to access camera: ${selectedDeviceId}`);
-        const constraints = {
-          video: {
-            deviceId: { exact: selectedDeviceId },
-            width: { ideal: 640 }, // Reduced from 1280 to improve performance
-            height: { ideal: 480 }, // Reduced from 720 to improve performance
-            frameRate: { ideal: 15 } // Limit frame rate to reduce CPU usage
-          }
-        };
-
-        const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        if (!isMounted) {
-          // Component unmounted during initialization
-          newStream.getTracks().forEach(track => track.stop());
-          return;
-        }
-
-        // Clear the timeout since we succeeded
-        if (initTimeout) {
-          clearTimeout(initTimeout);
-          initTimeout = null;
-        }
-
+    // Request the stream from the manager instead of directly from the device
+    const cleanup = streamManager.requestStream(selectedDeviceId, (newStream) => {
+      if (newStream) {
         setStream(newStream);
+        setError(null);
+        
         if (videoRef.current) {
           videoRef.current.srcObject = newStream;
-          try {
-            await videoRef.current.play();
-          } catch (playError) {
-            console.error('Error playing video:', playError);
+          videoRef.current.play().catch(error => {
+            console.error('Error playing video:', error);
             setError('Error playing video stream. The camera might be in use by another application.');
-            setIsProcessing(false);
-            return;
-          }
+          });
         }
-        
-        setError(null);
-        setIsProcessing(false);
-      } catch (error) {
-        if (!isMounted) return;
-
-        console.error('Error starting camera:', error);
-        if ((error as Error).name === 'OverconstrainedError') {
-          setError('Camera is currently in use by another application. Please try again later.');
-        } else if ((error as Error).name === 'NotFoundError') {
-          setError('Camera not found. It may have been disconnected.');
-        } else if ((error as Error).name === 'NotAllowedError') {
-          setError('Camera access denied. Please allow camera access and try again.');
-        } else {
-          setError('Error accessing camera: ' + (error as Error).message);
-        }
-        setIsProcessing(false);
-        
-        // Clear the timeout
-        if (initTimeout) {
-          clearTimeout(initTimeout);
-          initTimeout = null;
-        }
+      } else {
+        console.error('Failed to get camera stream');
+        setError('Failed to access camera. The device might be in use or not available.');
       }
-    };
-
-    startCamera();
+    });
+    
+    // Save the cleanup function
+    streamCleanupRef.current = cleanup;
 
     return () => {
-      isMounted = false; // Mark component as unmounted
-      
-      // Clear any timeout
-      if (initTimeout) {
-        clearTimeout(initTimeout);
-      }
-      
       stopProcessing();
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
+        streamCleanupRef.current = null;
       }
       if (videoRef.current) {
         videoRef.current.srcObject = null;
@@ -309,123 +242,183 @@ const CameraView: React.FC<CameraViewProps> = ({
     };
   }, [selectedDeviceId]);
 
-  // Update local status when it changes through the manager
+  // Fetch and display the processed frame from the processing manager
   useEffect(() => {
-    if (!selectedDeviceId || !cameraId) return;
+    if (!cameraId || !assignedDeviceId) return;
 
-    const registerWithManager = async () => {
-      try {
-        await processingManager.registerCamera(
-          cameraId,
-          selectedDeviceId,
-          (status) => {
-            setCameraStatus(status);
-            onStatusUpdate(status);
-          }
-        );
-      } catch (error) {
-        console.error('Error registering camera with processing manager:', error);
-        setError('Error connecting to camera processing system');
-      }
-    };
-    
-    registerWithManager();
-    
-    return () => {
-      processingManager.unregisterCamera(cameraId);
-    };
-  }, [selectedDeviceId, cameraId, onStatusUpdate]);
-
-  // Update processed frame display for threat monitor view
-  useEffect(() => {
-    if (!isFromThreatMonitor || !selectedDeviceId) return;
-
-    const updateProcessedFrame = () => {
+    const fetchProcessedFrame = () => {
       const frame = processingManager.getProcessedFrame(cameraId);
       if (frame) {
         setProcessedImageUrl(frame);
       }
     };
 
-    // Update immediately and then every second
-    updateProcessedFrame();
-    const interval = setInterval(updateProcessedFrame, 1000);
+    // Set up an interval to fetch the latest processed frame
+    const interval = setInterval(fetchProcessedFrame, 1000);
     
     return () => {
       clearInterval(interval);
     };
-  }, [isFromThreatMonitor, selectedDeviceId, cameraId]);
+  }, [cameraId, assignedDeviceId]);
+
+  // Update threats and status when camera status changes
+  useEffect(() => {
+    const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
+      if (event.detail.cameraId === cameraId) {
+        setCameraStatus(event.detail.status);
+      }
+    };
+
+    window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    return () => {
+      window.removeEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    };
+  }, [cameraId]);
+
+  useEffect(() => {
+    // Simulate camera status changes for demonstration
+    const simulateStatusChanges = assignedDeviceId === null && isFromThreatMonitor;
+    if (!simulateStatusChanges) return;
+
+    let interval: NodeJS.Timeout;
+    
+    const simulate = () => {
+      const statuses: ('NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW')[] = ['NORMAL', 'LOW', 'MEDIUM', 'HIGH'];
+      const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+      setCameraStatus(randomStatus);
+      onStatusUpdate(randomStatus);
+      
+      // Dispatch event
+      const event = new CustomEvent('cameraStatusChanged', {
+        detail: { cameraId, status: randomStatus }
+      });
+      window.dispatchEvent(event);
+    };
+    
+    if (simulateStatusChanges) {
+      interval = setInterval(simulate, 8000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [assignedDeviceId, isFromThreatMonitor, cameraId, onStatusUpdate]);
+
+  // Set up an event to handle the device assignment
+  const handleDeviceAssignment = (deviceId: string | null) => {
+    // Dispatch an event to notify any listeners about the camera assignment
+    const event = new CustomEvent('cameraAssigned', {
+      detail: { cameraId, deviceId }
+    });
+    window.dispatchEvent(event);
+  };
 
   return (
-    <div className="relative w-full h-full bg-black">
-      {/* Original video element - hidden when showing processed feed */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className={`w-full h-full object-contain ${isFromThreatMonitor ? 'hidden' : ''}`}
-      />
-      
-      {/* Processed image display */}
-      {isFromThreatMonitor && processedImageUrl && (
-        <img
-          src={processedImageUrl}
-          alt="Processed feed"
-          className="w-full h-full object-contain"
-        />
-      )}
-
-      {/* Camera selection dropdown */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-        <select
-          value={selectedDeviceId || ''}
-          onChange={(e) => {
-            const deviceId = e.target.value || null;
-            setSelectedDeviceId(deviceId);
-            // Update the parent component's camera assignments
-            if (cameraId) {
-              const event = new CustomEvent('cameraAssigned', {
-                detail: { cameraId, deviceId }
-              });
-              window.dispatchEvent(event);
-            }
-          }}
-          className="w-full p-2 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-lg"
-        >
-          <option value="">Select Camera</option>
-          {availableDevices.map((device) => (
-            <option key={device.deviceId} value={device.deviceId}>
-              {device.label || `Camera ${device.deviceId}`}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Status indicator */}
-      <div className="absolute top-4 right-4 flex items-center space-x-2 bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full">
-        <div className={`w-2 h-2 rounded-full ${
-          cameraStatus === 'HIGH' ? 'bg-red-500 animate-pulse' :
-          cameraStatus === 'MEDIUM' ? 'bg-orange-500' :
-          cameraStatus === 'LOW' ? 'bg-yellow-500' :
-          'bg-green-500'
-        }`} />
-        <span className="text-white text-sm font-medium">{cameraStatus}</span>
-      </div>
-
-      {/* Error display */}
-      <AnimatePresence>
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="absolute top-4 left-4 right-4 bg-red-500/90 text-white px-4 py-2 rounded-lg"
-          >
-            {error}
-          </motion.div>
+    <div className="relative w-full h-full flex flex-col">
+      {/* Camera feed */}
+      <div className="flex-1 relative bg-black">
+        {!assignedDeviceId ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-8">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <h3 className="text-lg font-medium mb-2">No Camera Assigned</h3>
+            <p className="text-gray-400 text-center mb-6">Assign a camera device to monitor this location.</p>
+            
+            {availableDevices.length > 0 ? (
+              <div className="w-full max-w-xs">
+                <select 
+                  className="w-full px-4 py-2 rounded-lg bg-gray-800 text-white border border-gray-600 focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
+                  onChange={(e) => handleDeviceAssignment(e.target.value || null)}
+                  value={selectedDeviceId || ''}
+                >
+                  <option value="">Select a camera...</option>
+                  {availableDevices.map(device => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `Camera ${availableDevices.indexOf(device) + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <p className="text-red-400">No camera devices detected</p>
+            )}
+          </div>
+        ) : (
+          <>
+            <video 
+              ref={videoRef} 
+              className="absolute inset-0 h-full w-full object-cover"
+              playsInline
+              muted
+              autoPlay
+            />
+            
+            {/* Threat indicator overlay */}
+            <div className="absolute inset-0 pointer-events-none">
+              <div className={`absolute inset-0 transition-opacity duration-1000 ${cameraStatus !== 'NORMAL' ? 'opacity-100' : 'opacity-0'}`}>
+                <div className={`absolute inset-0 ${
+                  cameraStatus === 'HIGH' ? 'border-red-500 animate-pulse-border-fast' :
+                  cameraStatus === 'MEDIUM' ? 'border-orange-500 animate-pulse-border-medium' :
+                  cameraStatus === 'LOW' ? 'border-yellow-500 animate-pulse-border-slow' : ''
+                } border-[10px] rounded-lg`}></div>
+              </div>
+            </div>
+            
+            {/* Controls overlay */}
+            <div className="absolute bottom-0 left-0 right-0 flex justify-between items-center p-4 bg-gradient-to-t from-black/80 to-transparent">
+              <div className="flex items-center">
+                <div className={`w-3 h-3 rounded-full mr-2 ${
+                  stream ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                }`}></div>
+                <span className="text-white text-sm">
+                  {stream ? 'Live' : 'Disconnected'}
+                </span>
+              </div>
+              
+              <div className="flex space-x-2">
+                <button 
+                  onClick={() => handleDeviceAssignment(null)}
+                  className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                >
+                  Disconnect
+                </button>
+                <select 
+                  className="px-2 py-1 text-xs bg-gray-800 text-white rounded border border-gray-700"
+                  value={selectedDeviceId || ''}
+                  onChange={(e) => handleDeviceAssignment(e.target.value || null)}
+                >
+                  <option value="">Change camera...</option>
+                  {availableDevices.map(device => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `Camera ${availableDevices.indexOf(device) + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            
+            {/* Status indicator */}
+            <div className="absolute top-4 right-4">
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                cameraStatus === 'HIGH' ? 'bg-red-500 animate-pulse' :
+                cameraStatus === 'MEDIUM' ? 'bg-orange-500' :
+                cameraStatus === 'LOW' ? 'bg-yellow-500' :
+                'bg-green-500'
+              } text-white`}>
+                {cameraStatus}
+              </div>
+            </div>
+            
+            {/* Error message */}
+            {error && (
+              <div className="absolute top-0 left-0 right-0 bg-red-500 text-white p-2 text-sm text-center">
+                {error}
+              </div>
+            )}
+          </>
         )}
-      </AnimatePresence>
+      </div>
     </div>
   );
 };
