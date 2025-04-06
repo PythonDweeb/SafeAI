@@ -237,6 +237,33 @@ const MapView: React.FC<MapViewProps> = ({
     return () => setMounted(false);
   }, []);
 
+  // Add new event listener for mapStatusUpdate events
+  useEffect(() => {
+    const handleMapStatusUpdate = (event: CustomEvent<{ cameraId: string; status: StatusType }>) => {
+      const { cameraId, status } = event.detail;
+      
+      // Force map to update camera marker statuses
+      setCameraPositions(prev => {
+        const updated = prev.map(camera => 
+          camera.id === cameraId 
+            ? { ...camera, status, lastUpdate: new Date().toISOString() } 
+            : camera
+        );
+        return [...updated]; // Return new array to trigger re-render
+      });
+      
+      // Force re-render of the entire map if needed
+      if (status !== 'NORMAL') {
+        setMapKey(Date.now());
+      }
+    };
+
+    window.addEventListener('mapStatusUpdate', handleMapStatusUpdate as EventListener);
+    return () => {
+      window.removeEventListener('mapStatusUpdate', handleMapStatusUpdate as EventListener);
+    };
+  }, []);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       import('leaflet').then(L => {

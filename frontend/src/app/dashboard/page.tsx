@@ -178,13 +178,40 @@ export default function Dashboard() {
             : threat
         );
       });
+      
+      // If a high threat is detected, force open the camera view
+      if (status === 'HIGH' && !selectedCamera) {
+        setSelectedCamera(cameraId);
+        setHighlightedCamera(cameraId);
+        setForceOpenCamera(true);
+      }
+    };
+
+    // Also listen for mapStatusUpdate events to ensure consistency
+    const handleMapStatusUpdate = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW'; timestamp?: number }>) => {
+      const { cameraId, status } = event.detail;
+      
+      // Update statuses in the same way as the main event handler
+      setCameraStatuses(prev => ({...prev, [cameraId]: status}));
+      
+      // Update threat list
+      setActiveThreats(prev => 
+        prev.map(threat => 
+          threat.cameraId === cameraId 
+            ? { ...threat, status, timestamp: 'Now' } 
+            : threat
+        )
+      );
     };
 
     window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+    window.addEventListener('mapStatusUpdate', handleMapStatusUpdate as EventListener);
+    
     return () => {
       window.removeEventListener('cameraStatusChanged', handleStatusChange as EventListener);
+      window.removeEventListener('mapStatusUpdate', handleMapStatusUpdate as EventListener);
     };
-  }, []);
+  }, [selectedCamera]);
   
   // Update camera statuses when school changes
   useEffect(() => {
