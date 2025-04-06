@@ -280,11 +280,7 @@ const MapView: React.FC<MapViewProps> = ({
         setOptimalPath(null);
         setSelectedCamera(camera);
         try {
-          if (currentAccessPoints && currentAccessPoints.length > 0 && 
-              camera.position && Array.isArray(camera.position) && 
-              camera.position.length === 2) {
-            findOptimalPath(camera);
-          }
+          findOptimalPath(camera);
         } catch (error) {
           console.error("Error finding optimal path:", error);
           setMapError("Could not calculate response path");
@@ -295,27 +291,24 @@ const MapView: React.FC<MapViewProps> = ({
 
   // Add direct event listener for camera status changes
   useEffect(() => {
+    if (!mounted) return;
+    
+    // Listen for camera status changes directly
     const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
       const { cameraId, status } = event.detail;
-      // Force update regardless of whether the camera is in our view
+      
+      // Update camera positions state to force a re-render of all markers
+      setCameraPositions(prevCameras => 
+        prevCameras.map(cam => 
+          cam.id === cameraId ? { ...cam, status: status } : cam
+        )
+      );
+      
       console.log(`MapView: Camera ${cameraId} status updated to ${status}`);
       
-      // Force a re-render by updating the mapKey
-      setMapKey(prev => prev + 1);
-      
-      // Also force a map invalidation to refresh markers
-      // Only call invalidateSize if map is defined
-      if (map && typeof map.invalidateSize === 'function') {
-        try {
-          setTimeout(() => {
-            // Double-check map is still valid before calling
-            if (map && typeof map.invalidateSize === 'function') {
-              map.invalidateSize();
-            }
-          }, 0);
-        } catch (error) {
-          console.error("Error invalidating map size:", error);
-        }
+      // Force a re-render by updating the map
+      if (map) {
+        map.invalidateSize();
       }
     };
 
@@ -327,17 +320,11 @@ const MapView: React.FC<MapViewProps> = ({
 
   // New effect: When the selected map type changes, force the map to recalc its dimensions.
   useEffect(() => {
-    if (map && typeof map.invalidateSize === 'function') {
-      try {
-        setTimeout(() => {
-          if (map && typeof map.invalidateSize === 'function') {
-            map.invalidateSize();
-            window.dispatchEvent(new Event('resize'));
-          }
-        }, 300);
-      } catch (error) {
-        console.error("Error invalidating map size after layer change:", error);
-      }
+    if (map) {
+      setTimeout(() => {
+        map.invalidateSize();
+        window.dispatchEvent(new Event('resize'));
+      }, 300);
     }
   }, [selectedLayerKey, map]);
 
@@ -349,32 +336,15 @@ const MapView: React.FC<MapViewProps> = ({
 
   const findOptimalPath = (camera: Camera) => {
     try {
-      if (!leafletInstance || !currentAccessPoints || currentAccessPoints.length === 0 || 
-          !camera.position || !Array.isArray(camera.position) || camera.position.length !== 2) {
-        return;
-      }
-      
+      if (!leafletInstance || currentAccessPoints.length === 0) return;
       let nearestAccessPoint = currentAccessPoints[0];
-      // Ensure the first access point has valid position
-      if (!nearestAccessPoint.position || !Array.isArray(nearestAccessPoint.position) || 
-          nearestAccessPoint.position.length !== 2) {
-        return;
-      }
-      
       let shortestDistance = calculateHaversineDistance(
         camera.position[0],
         camera.position[1],
         nearestAccessPoint.position[0],
         nearestAccessPoint.position[1]
       );
-      
-      // Find nearest access point with valid checks
       currentAccessPoints.forEach(accessPoint => {
-        if (!accessPoint.position || !Array.isArray(accessPoint.position) || 
-            accessPoint.position.length !== 2) {
-          return;
-        }
-        
         const distance = calculateHaversineDistance(
           camera.position[0],
           camera.position[1],
@@ -386,7 +356,6 @@ const MapView: React.FC<MapViewProps> = ({
           nearestAccessPoint = accessPoint;
         }
       });
-      
       const path = calculateDetailedPath(nearestAccessPoint.position, camera.position);
       const timeEstimate = Math.ceil(shortestDistance * 1000 / 1.4);
       setOptimalPath({ path, timeEstimate, startAccessPointId: nearestAccessPoint.id });
@@ -498,17 +467,11 @@ const MapView: React.FC<MapViewProps> = ({
   const handleMarkerClick = (cameraId: string) => {
     cleanupPath();
     onMarkerClick(cameraId);
-    if (map && typeof map.invalidateSize === 'function') {
-      try {
-        setTimeout(() => {
-          if (map && typeof map.invalidateSize === 'function') {
-            map.invalidateSize();
-            window.dispatchEvent(new Event('resize'));
-          }
-        }, 300);
-      } catch (error) {
-        console.error("Error invalidating map size after marker click:", error);
-      }
+    if (map) {
+      setTimeout(() => {
+        map.invalidateSize();
+        window.dispatchEvent(new Event('resize'));
+      }, 300);
     }
   };
 
