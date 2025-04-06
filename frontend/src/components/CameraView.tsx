@@ -87,14 +87,30 @@ const CameraView: React.FC<CameraViewProps> = ({
       }
 
       processingRef.current = true;
-      const imageData = processingService.canvasToBase64(canvasRef.current);
+      
+      // Use a more conservative canvas size for better performance
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d', { alpha: false }); // Alpha false for performance
+      
+      if (!context) return;
+      
+      // Use a smaller size for processing - scale down
+      const scaleFactor = 0.5; // Process at half resolution
+      canvas.width = video.videoWidth * scaleFactor;
+      canvas.height = video.videoHeight * scaleFactor;
+      
+      // Draw with proper scaling
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      const imageData = processingService.canvasToBase64(canvas);
       const result = await processingService.processFrame(imageData);
       
       // Always update threats and status
       setThreats(result.threats);
       
       // Update status based on threats
-      if (result.threats.length > 0) {
+      if (result.threats && result.threats.length > 0) {
         const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
         const newStatus = highestThreat.confidence > 0.8 ? 'HIGH' :
                          highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
@@ -193,8 +209,19 @@ const CameraView: React.FC<CameraViewProps> = ({
       return;
     }
 
+    // Add timeout handling
+    let initializationTimeout: NodeJS.Timeout | null = null;
+    let isInitialized = false;
+
     const startCamera = async () => {
       try {
+        // Set initialization timeout
+        initializationTimeout = setTimeout(() => {
+          if (!isInitialized) {
+            setError('Camera initialization timed out. Please try a different camera or refresh the page.');
+          }
+        }, 8000); // 8 second timeout
+
         // Stop any existing stream
         if (stream) {
           stream.getTracks().forEach(track => track.stop());
@@ -202,24 +229,51 @@ const CameraView: React.FC<CameraViewProps> = ({
         }
 
         // Add a small delay to ensure previous stream is fully stopped
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
 
+        // Try with more conservative constraints first
         const newStream = await navigator.mediaDevices.getUserMedia({
           video: {
             deviceId: { exact: selectedDeviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 640 }, // Reduced from 1280
+            height: { ideal: 480 }, // Reduced from 720
+            frameRate: { ideal: 15, max: 24 } // Limit framerate for better performance
           }
         });
+
+        // Mark as initialized
+        isInitialized = true;
+        if (initializationTimeout) {
+          clearTimeout(initializationTimeout);
+          initializationTimeout = null;
+        }
 
         setStream(newStream);
         if (videoRef.current) {
           videoRef.current.srcObject = newStream;
+          
+          // Clear any previous errors
+          setError(null);
+          
           try {
-            await videoRef.current.play();
+            // Add play timeout
+            const playPromise = videoRef.current.play();
+            const playTimeout = setTimeout(() => {
+              if (videoRef.current && videoRef.current.readyState < 3) {
+                setError('Video play timed out. The camera might be in use by another application.');
+              }
+            }, 5000); // 5 second play timeout
+            
+            await playPromise;
+            clearTimeout(playTimeout);
           } catch (playError) {
             console.error('Error playing video:', playError);
             setError('Error playing video stream. The camera might be in use by another application.');
+            
+            // Try to recover by stopping and releasing the stream
+            if (newStream) {
+              newStream.getTracks().forEach(track => track.stop());
+            }
             return;
           }
         }
@@ -227,8 +281,36 @@ const CameraView: React.FC<CameraViewProps> = ({
         setError(null);
       } catch (error) {
         console.error('Error starting camera:', error);
-        if ((error as Error).name === 'OverconstrainedError') {
-          setError('Camera is currently in use by another application. Please try again later.');
+        
+        // Try with minimal constraints as fallback
+        if ((error as Error).name === 'OverconstrainedError' || (error as Error).name === 'NotReadableError') {
+          try {
+            console.log('Trying fallback with minimal constraints');
+            const fallbackStream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { exact: selectedDeviceId },
+                width: { ideal: 320 }, // Very low resolution as fallback
+                height: { ideal: 240 },
+                frameRate: { ideal: 10, max: 15 } // Very low framerate
+              }
+            });
+            
+            // Mark as initialized
+            isInitialized = true;
+            if (initializationTimeout) {
+              clearTimeout(initializationTimeout);
+              initializationTimeout = null;
+            }
+
+            setStream(fallbackStream);
+            if (videoRef.current) {
+              videoRef.current.srcObject = fallbackStream;
+              await videoRef.current.play();
+              setError(null);
+            }
+          } catch (fallbackError) {
+            setError('Camera is currently in use by another application or not responding. Please try a different camera.');
+          }
         } else {
           setError('Error accessing camera: ' + (error as Error).message);
         }
@@ -238,6 +320,11 @@ const CameraView: React.FC<CameraViewProps> = ({
     startCamera();
 
     return () => {
+      // Clean up timeout
+      if (initializationTimeout) {
+        clearTimeout(initializationTimeout);
+      }
+      
       stopProcessing();
       if (stream) {
         stream.getTracks().forEach(track => track.stop());

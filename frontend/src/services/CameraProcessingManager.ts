@@ -151,82 +151,138 @@ export class CameraProcessingManager {
     onStatusUpdate: (status: CameraStatus) => void
   ): Promise<void> {
     try {
-      // Clean up any existing registration for this camera
-      const oldDeviceId = this.cameraToDevice.get(cameraId);
-      if (oldDeviceId) {
-        // Remove this camera from old device's tracking
-        const oldCameraIds = this.deviceToCameras.get(oldDeviceId);
-        if (oldCameraIds) {
-          oldCameraIds.delete(cameraId);
-          // If old device has no more cameras, clean it up
-          if (oldCameraIds.size === 0) {
-            this.cleanupDevice(oldDeviceId);
-          } else {
-            // Just remove this camera's status tracking
-            const oldCamera = this.cameras.get(oldDeviceId);
-            if (oldCamera) {
-              const oldNodeStatus = oldCamera.nodeStatuses.get(cameraId);
-              if (oldNodeStatus?.statusTimeout) {
-                clearTimeout(oldNodeStatus.statusTimeout);
+      // Set a timeout to fail if registration takes too long
+      const registerPromise = new Promise<void>(async (resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Camera registration timed out'));
+        }, 10000); // 10 second timeout
+        
+        try {
+          // Clean up any existing registration for this camera
+          const oldDeviceId = this.cameraToDevice.get(cameraId);
+          if (oldDeviceId) {
+            // Remove this camera from old device's tracking
+            const oldCameraIds = this.deviceToCameras.get(oldDeviceId);
+            if (oldCameraIds) {
+              oldCameraIds.delete(cameraId);
+              // If old device has no more cameras, clean it up
+              if (oldCameraIds.size === 0) {
+                this.cleanupDevice(oldDeviceId);
+              } else {
+                // Just remove this camera's status tracking
+                const oldCamera = this.cameras.get(oldDeviceId);
+                if (oldCamera) {
+                  const oldNodeStatus = oldCamera.nodeStatuses.get(cameraId);
+                  if (oldNodeStatus?.statusTimeout) {
+                    clearTimeout(oldNodeStatus.statusTimeout);
+                  }
+                  oldCamera.nodeStatuses.delete(cameraId);
+                }
               }
-              oldCamera.nodeStatuses.delete(cameraId);
             }
           }
-        }
-      }
 
-      // Set up new device if needed
-      let camera = this.cameras.get(deviceId);
-      if (!camera) {
-        // Create new camera processing for this device
-        const videoElement = document.createElement('video');
-        videoElement.autoplay = true;
-        videoElement.playsInline = true;
-        videoElement.muted = true;
+          // Set up new device if needed
+          let camera = this.cameras.get(deviceId);
+          if (!camera) {
+            // Create new camera processing for this device
+            const videoElement = document.createElement('video');
+            videoElement.autoplay = true;
+            videoElement.playsInline = true;
+            videoElement.muted = true;
 
-        const canvas = document.createElement('canvas');
-        
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: deviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            const canvas = document.createElement('canvas');
+            
+            let mediaOptions = {
+              video: {
+                deviceId: { exact: deviceId },
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+                frameRate: { ideal: 15, max: 30 }
+              }
+            };
+            
+            let stream: MediaStream;
+            try {
+              // Try to get stream with primary constraints
+              stream = await navigator.mediaDevices.getUserMedia(mediaOptions);
+            } catch (e) {
+              console.warn(`Failed to get stream with primary constraints: ${e}`);
+              
+              // Try with minimal constraints
+              mediaOptions = {
+                video: {
+                  deviceId: { exact: deviceId },
+                  width: { ideal: 320 },
+                  height: { ideal: 240 },
+                  frameRate: { ideal: 10, max: 15 }
+                }
+              };
+              
+              stream = await navigator.mediaDevices.getUserMedia(mediaOptions);
+            }
+
+            videoElement.srcObject = stream;
+            
+            // Wait for the video to be ready with a timeout
+            const videoReady = new Promise<void>((resolveVideo, rejectVideo) => {
+              const videoTimeout = setTimeout(() => {
+                rejectVideo(new Error('Video element failed to load'));
+              }, 5000);
+              
+              videoElement.addEventListener('loadeddata', () => {
+                clearTimeout(videoTimeout);
+                resolveVideo();
+              }, { once: true });
+            });
+            
+            try {
+              await videoElement.play();
+              await videoReady;
+            } catch (videoError) {
+              console.error(`Error initializing video: ${videoError}`);
+              throw videoError;
+            }
+
+            camera = {
+              deviceId,
+              stream,
+              videoElement,
+              canvas,
+              processingInterval: null,
+              lastProcessedTime: 0,
+              nodeStatuses: new Map(),
+              processedFrame: null
+            };
+
+            this.cameras.set(deviceId, camera);
+            this.startProcessing(deviceId); // Start processing immediately for new device
           }
-        });
 
-        videoElement.srcObject = stream;
-        await videoElement.play();
+          // Update mappings
+          if (!this.deviceToCameras.has(deviceId)) {
+            this.deviceToCameras.set(deviceId, new Set());
+          }
+          this.deviceToCameras.get(deviceId)!.add(cameraId);
+          this.cameraToDevice.set(cameraId, deviceId);
 
-        camera = {
-          deviceId,
-          stream,
-          videoElement,
-          canvas,
-          processingInterval: null,
-          lastProcessedTime: 0,
-          nodeStatuses: new Map(),
-          processedFrame: null
-        };
-
-        this.cameras.set(deviceId, camera);
-        this.startProcessing(deviceId); // Start processing immediately for new device
-      }
-
-      // Update mappings
-      if (!this.deviceToCameras.has(deviceId)) {
-        this.deviceToCameras.set(deviceId, new Set());
-      }
-      this.deviceToCameras.get(deviceId)!.add(cameraId);
-      this.cameraToDevice.set(cameraId, deviceId);
-
-      // Add status tracking for this node
-      camera.nodeStatuses.set(cameraId, {
-        onStatusUpdate,
-        currentStatus: 'NORMAL',
-        lastThreatTime: 0,
-        statusTimeout: null
+          // Add status tracking for this node
+          camera.nodeStatuses.set(cameraId, {
+            onStatusUpdate,
+            currentStatus: 'NORMAL',
+            lastThreatTime: 0,
+            statusTimeout: null
+          });
+          
+          clearTimeout(timeout);
+          resolve();
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(error);
+        }
       });
-
+      
+      await registerPromise;
     } catch (error) {
       console.error(`Error registering camera ${cameraId}:`, error);
       throw error;
@@ -279,13 +335,22 @@ export class CameraProcessingManager {
           return;
         }
 
-        // Set canvas dimensions to match video
-        camera.canvas.width = camera.videoElement.videoWidth;
-        camera.canvas.height = camera.videoElement.videoHeight;
+        // Check if video is actually ready
+        if (camera.videoElement.readyState < 2) {
+          console.log(`Video element not ready yet for device ${deviceId}, skipping frame`);
+          return;
+        }
+
+        // Set canvas dimensions to match video but with reduced size for performance
+        const scaleFactor = 0.5; // Process at half resolution for performance
+        camera.canvas.width = camera.videoElement.videoWidth * scaleFactor;
+        camera.canvas.height = camera.videoElement.videoHeight * scaleFactor;
 
         // Draw the current frame to canvas
-        const context = camera.canvas.getContext('2d');
+        const context = camera.canvas.getContext('2d', { alpha: false }); // Alpha false for performance
         if (!context) return;
+        
+        // Draw with proper scaling
         context.drawImage(camera.videoElement, 0, 0, camera.canvas.width, camera.canvas.height);
 
         // Process the frame
@@ -314,13 +379,25 @@ export class CameraProcessingManager {
     };
 
     // Start continuous processing with interval matching backend timing
+    // But with progressive backoff if errors occur
+    let errorCount = 0;
     const process = () => {
       if (!this.cameras.has(deviceId)) {
         this.stopProcessing(deviceId);
         return;
       }
-      processFrame();
-      camera.processingInterval = setTimeout(process, 1500); // Match backend's min_process_interval
+      
+      processFrame().catch(err => {
+        console.error(`Error in processFrame for device ${deviceId}:`, err);
+        errorCount++;
+      });
+      
+      // Adjust interval based on error count (backoff strategy)
+      const interval = errorCount > 5 ? 3000 : // Significant errors, slow down a lot
+                      errorCount > 2 ? 2000 : // Some errors, slow down moderately
+                      1500; // Normal case
+      
+      camera.processingInterval = setTimeout(process, interval);
     };
 
     // Start processing immediately
