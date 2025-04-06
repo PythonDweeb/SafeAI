@@ -313,6 +313,58 @@ const CameraView: React.FC<CameraViewProps> = ({
     window.dispatchEvent(event);
   };
 
+  // Render different layouts based on whether this is part of the threat monitor or not
+  if (isFromThreatMonitor) {
+    return (
+      <div className="relative w-full h-full bg-black">
+        {/* When in threat monitor, we show the processed image if available */}
+        {processedImageUrl ? (
+          <img
+            src={processedImageUrl}
+            alt="Processed feed"
+            className="w-full h-full object-contain" 
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-contain"
+          />
+        )}
+
+        {/* Status indicator */}
+        <div className="absolute top-4 right-4 flex items-center space-x-2 bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full">
+          <div className={`w-2 h-2 rounded-full ${
+            cameraStatus === 'HIGH' ? 'bg-red-500 animate-pulse' :
+            cameraStatus === 'MEDIUM' ? 'bg-orange-500' :
+            cameraStatus === 'LOW' ? 'bg-yellow-500' :
+            'bg-green-500'
+          }`} />
+          <span className="text-white text-sm font-medium">{cameraStatus}</span>
+        </div>
+
+        {/* Simple camera selection for threat monitor */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+          <select
+            value={selectedDeviceId || ''}
+            onChange={(e) => handleDeviceAssignment(e.target.value || null)}
+            className="w-full p-2 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-lg"
+          >
+            <option value="">Select Camera</option>
+            {availableDevices.map((device) => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Camera ${device.deviceId}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular (non-threat monitor) render
   return (
     <div className="relative w-full h-full flex flex-col">
       {/* Camera feed */}
@@ -348,7 +400,7 @@ const CameraView: React.FC<CameraViewProps> = ({
           <>
             <video 
               ref={videoRef} 
-              className="absolute inset-0 h-full w-full object-cover"
+              className="absolute inset-0 h-full w-full object-contain"
               playsInline
               muted
               autoPlay
