@@ -312,15 +312,45 @@ export class CameraProcessingManager {
           camera.processedFrame = `data:image/jpeg;base64,${result.processed_image}`;
         }
 
-        // Update status based on threats
+        // Update status based on threats - now handle the threat level information
         if (result.threats && result.threats.length > 0) {
-          const highestThreat = result.threats.sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)[0];
-          const newStatus: CameraStatus = 
-            highestThreat.confidence > 0.8 ? 'HIGH' :
-            highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
-          this.updateCameraStatus(deviceId, newStatus);
+          // First check if any threat has an explicit level
+          const hasThreatLevels = result.threats.some(
+            (threat: any) => threat.level === 'HIGH' || threat.level === 'MEDIUM' || threat.level === 'LOW'
+          );
+
+          if (hasThreatLevels) {
+            // Use the highest threat level present
+            let highestThreatLevel: CameraStatus = 'NORMAL';
+            
+            // Check for HIGH threats first
+            if (result.threats.some((threat: any) => threat.level === 'HIGH')) {
+              highestThreatLevel = 'HIGH';
+            } 
+            // Then check for MEDIUM threats if no HIGH threats
+            else if (result.threats.some((threat: any) => threat.level === 'MEDIUM')) {
+              highestThreatLevel = 'MEDIUM';
+            } 
+            // Then check for LOW threats if no HIGH or MEDIUM threats
+            else if (result.threats.some((threat: any) => threat.level === 'LOW')) {
+              highestThreatLevel = 'LOW';
+            }
+            
+            this.updateCameraStatus(deviceId, highestThreatLevel);
+          } else {
+            // Fall back to the old confidence-based approach if levels aren't provided
+            const highestThreat = result.threats.sort(
+              (a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence
+            )[0];
+            
+            const newStatus: CameraStatus = 
+              highestThreat.confidence > 0.8 ? 'HIGH' :
+              highestThreat.confidence > 0.5 ? 'MEDIUM' : 'LOW';
+            
+            this.updateCameraStatus(deviceId, newStatus);
+          }
         } else {
-          // Always update to NORMAL when no threats are detected
+          // No threats detected
           this.updateCameraStatus(deviceId, 'NORMAL');
         }
       } catch (error) {

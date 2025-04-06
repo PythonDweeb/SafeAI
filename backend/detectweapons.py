@@ -267,48 +267,59 @@ class ThreatDetectionSystem:
                try:
                    logger.info(f"Processing image of size: {image.size}, mode: {image.mode}")
                    
-                   # Use the model's built-in detect method directly for all devices
-                   detection_result = self.model.detect(
-                       image, 
-                       "weapon or handheld sharp object"
-                   )
-                   logger.info(f"Detection result type: {type(detection_result)}")
+                   # Define the three threat types we want to detect
+                   threat_types = [
+                       {"query": "weapon or handheld sharp object", "level": "HIGH", "type": "weapon"},
+                       {"query": "man in a hoodie with hood up", "level": "MEDIUM", "type": "suspicious person"},
+                       {"query": "pencil or pen", "level": "LOW", "type": "writing implement"}
+                   ]
                    
-                   if isinstance(detection_result, dict) and "objects" in detection_result:
-                       detections = detection_result["objects"]
-                   elif isinstance(detection_result, list):
-                       detections = detection_result
-                   else:
-                       logger.warning(f"Unexpected detection result format: {type(detection_result)}")
-                       detections = []
+                   all_threats = []
+                   
+                   # Run detection for each threat type
+                   for threat_type in threat_types:
+                       # Use the model's built-in detect method directly for all devices
+                       detection_result = self.model.detect(
+                           image, 
+                           threat_type["query"]
+                       )
+                       logger.info(f"Detection result for {threat_type['type']}: {type(detection_result)}")
+                       
+                       if isinstance(detection_result, dict) and "objects" in detection_result:
+                           detections = detection_result["objects"]
+                       elif isinstance(detection_result, list):
+                           detections = detection_result
+                       else:
+                           logger.warning(f"Unexpected detection result format: {type(detection_result)}")
+                           detections = []
 
-                   # Log number of detections
-                   logger.info(f"Found {len(detections)} detections")
+                       # Log number of detections
+                       logger.info(f"Found {len(detections)} {threat_type['type']} detections")
 
-                   # Convert normalized coordinates to pixel values and build threat objects
-                   threats = []
-                   img_width, img_height = image.size
-                   for obj in detections:
-                       try:
-                           x_min = float(obj.get("x_min", 0)) * img_width
-                           y_min = float(obj.get("y_min", 0)) * img_height
-                           x_max = float(obj.get("x_max", 1)) * img_width
-                           y_max = float(obj.get("y_max", 1)) * img_height
-                           threat = {
-                               "bbox": [x_min, y_min, x_max, y_max],
-                               "confidence": float(obj.get("confidence", 1.0)),
-                               "type": obj.get("label", "weapon"),
-                               "timestamp": current_time
-                           }
-                           threats.append(threat)
-                           logger.info(f"Processed threat: {threat}")
-                       except Exception as e:
-                           logger.error(f"Error processing detection object: {e}")
-                           continue
-
+                       # Convert normalized coordinates to pixel values and build threat objects
+                       img_width, img_height = image.size
+                       for obj in detections:
+                           try:
+                               x_min = float(obj.get("x_min", 0)) * img_width
+                               y_min = float(obj.get("y_min", 0)) * img_height
+                               x_max = float(obj.get("x_max", 1)) * img_width
+                               y_max = float(obj.get("y_max", 1)) * img_height
+                               threat = {
+                                   "bbox": [x_min, y_min, x_max, y_max],
+                                   "confidence": float(obj.get("confidence", 1.0)),
+                                   "type": threat_type["type"],
+                                   "level": threat_type["level"],
+                                   "timestamp": current_time
+                               }
+                               all_threats.append(threat)
+                               logger.info(f"Processed threat: {threat}")
+                           except Exception as e:
+                               logger.error(f"Error processing detection object: {e}")
+                               continue
+                   
                    # Cache the results
                    self.result_cache[image_hash] = {
-                       'threats': threats,
+                       'threats': all_threats,
                        'timestamp': current_time
                    }
 
@@ -316,7 +327,7 @@ class ThreatDetectionSystem:
                    scale_x = frame.shape[1] / image.size[0]
                    scale_y = frame.shape[0] / image.size[1]
                    scaled_threats = []
-                   for threat in threats:
+                   for threat in all_threats:
                        scaled_threat = {
                            'bbox': [
                                threat['bbox'][0] * scale_x,
@@ -326,6 +337,7 @@ class ThreatDetectionSystem:
                            ],
                            'confidence': threat['confidence'],
                            'type': threat['type'],
+                           'level': threat['level'],
                            'timestamp': current_time
                        }
                        scaled_threats.append(scaled_threat)
@@ -347,27 +359,52 @@ class ThreatDetectionSystem:
        processed_frame = frame.copy()
        current_time = time.time()
        
-       # Filter out old detections
-       active_threats = [
-           threat for threat in threats 
-           if current_time - threat.get('timestamp', 0) < self.detection_timeout
-       ]
+       # No threats detected
+       if not threats:
+           return processed_frame
        
-       for threat in active_threats:
-           x1, y1, x2, y2 = map(int, threat["bbox"])
-           # Calculate alpha based on time remaining
-           time_remaining = self.detection_timeout - (current_time - threat.get('timestamp', 0))
-           alpha = max(0.3, min(1.0, time_remaining / self.detection_timeout))
-           
-           # Draw semi-transparent rectangle
-           overlay = processed_frame.copy()
-           cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 2)
-           cv2.addWeighted(overlay, alpha, processed_frame, 1 - alpha, 0, processed_frame)
-           
-           # Draw label
-           label = f"{threat['type']}: {threat['confidence']:.2f}"
-           cv2.putText(processed_frame, label, (x1, y1 - 5),
-                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+       # Sort threats by confidence for consistent color assignment
+       threats = sorted(threats, key=lambda t: t["confidence"], reverse=True)
+       
+       # Draw each threat with appropriate color based on threat level
+       for threat in threats:
+           try:
+               # Set color based on threat level
+               if "level" in threat:
+                   if threat["level"] == "HIGH":
+                       color = (0, 0, 255)  # Red (BGR)
+                   elif threat["level"] == "MEDIUM":
+                       color = (0, 165, 255)  # Orange (BGR)
+                   elif threat["level"] == "LOW":
+                       color = (0, 255, 255)  # Yellow (BGR)
+                   else:
+                       color = (0, 255, 0)  # Green (BGR) for unknown level
+               else:
+                   # Fallback to default high threat color if level not specified
+                   color = (0, 0, 255)  # Red (BGR)
+               
+               # Extract bounding box coordinates
+               x1, y1, x2, y2 = map(int, threat["bbox"])
+               
+               # Draw rectangle around the threat
+               cv2.rectangle(processed_frame, (x1, y1), (x2, y2), color, 2)
+               
+               # Prepare label text
+               confidence = threat.get("confidence", 0.0)
+               threat_type = threat.get("type", "Unknown")
+               threat_level = threat.get("level", "UNKNOWN")
+               label = f"{threat_type} ({threat_level}): {confidence:.2f}"
+               
+               # Calculate text position and draw background
+               text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+               cv2.rectangle(processed_frame, (x1, y1 - text_size[1] - 10), (x1 + text_size[0], y1), color, -1)
+               
+               # Draw text
+               cv2.putText(processed_frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+               
+           except Exception as e:
+               logger.error(f"Error drawing threat: {e}")
+               continue
        
        return processed_frame
 

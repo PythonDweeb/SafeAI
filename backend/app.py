@@ -60,6 +60,20 @@ def detect_threats():
         processed_image, threats = threat_detector.process_base64_image(image_data)
         logger.info("Processing complete. Found %d threats", len(threats))
         
+        # Make sure threats have all the necessary fields, and add any missing ones
+        for threat in threats:
+            # Ensure threat level is present, defaulting to HIGH if missing
+            if 'level' not in threat:
+                # Try to determine level based on type
+                if threat.get('type', '').lower() in ['weapon', 'knife', 'gun']:
+                    threat['level'] = 'HIGH'
+                elif threat.get('type', '').lower() in ['suspicious person', 'hooded', 'hoodie']:
+                    threat['level'] = 'MEDIUM'
+                elif threat.get('type', '').lower() in ['pen', 'pencil', 'writing implement']:
+                    threat['level'] = 'LOW'
+                else:
+                    threat['level'] = 'HIGH'  # Default to high for unknown threats
+        
         # Prepare response
         response = {
             'processed_image': processed_image,
