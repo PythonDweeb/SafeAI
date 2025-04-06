@@ -297,18 +297,22 @@ const MapView: React.FC<MapViewProps> = ({
     const handleStatusChange = (event: CustomEvent<{ cameraId: string; status: 'NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW' }>) => {
       const { cameraId, status } = event.detail;
       
-      // Update the status in cameraPositions state without changing positions
-      setCameraPositions(prevCameras => 
-        prevCameras.map(cam => 
-          cam.id === cameraId ? { ...cam, status } : cam
+      // Update camera positions with the new status to force marker color updates
+      setCameraPositions(prevCameras =>
+        prevCameras.map(cam =>
+          cam.id === cameraId
+            ? { ...cam, status: status }
+            : cam
         )
       );
       
       console.log(`MapView: Camera ${cameraId} status updated to ${status}`);
       
-      // Also update the UI by invalidating the map size
+      // Force a re-render by updating the map
       if (map) {
         map.invalidateSize();
+        // Force a re-render by updating the map key to recreate all markers
+        setMapKey(Date.now());
       }
     };
 
@@ -316,7 +320,7 @@ const MapView: React.FC<MapViewProps> = ({
     return () => {
       window.removeEventListener('cameraStatusChanged', handleStatusChange as EventListener);
     };
-  }, [mounted, map]);
+  }, [mounted, map]); // Remove cameraPositions from dependencies to avoid re-adding listeners
 
   // New effect: When the selected map type changes, force the map to recalc its dimensions.
   useEffect(() => {
