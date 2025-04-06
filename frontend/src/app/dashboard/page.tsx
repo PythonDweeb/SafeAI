@@ -178,6 +178,12 @@ export default function Dashboard() {
             : threat
         );
       });
+      
+      // Force a global refresh of camera statuses by creating a new reference for the cameraStatuses object
+      // This helps ensure all components using cameraStatuses re-render
+      setTimeout(() => {
+        setCameraStatuses(prev => ({ ...prev }));
+      }, 0);
     };
 
     window.addEventListener('cameraStatusChanged', handleStatusChange as EventListener);
