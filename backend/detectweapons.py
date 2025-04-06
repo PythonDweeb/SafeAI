@@ -34,8 +34,6 @@ logger = logging.getLogger(__name__)
 class ThreatDetectionSystem:
    def __init__(self):
        self.model = None
-       # Detection confidence threshold (0.0 to 1.0)
-       self.confidence_threshold = 0.7
        # Check for Apple Silicon (MPS), CUDA, or fallback to CPU
        if torch.backends.mps.is_available():
            self.device = "mps"
@@ -302,19 +300,13 @@ class ThreatDetectionSystem:
                        img_width, img_height = image.size
                        for obj in detections:
                            try:
-                               confidence = float(obj.get("confidence", 0.0))
-                               # Skip detections below the confidence threshold
-                               if confidence < self.confidence_threshold:
-                                   logger.info(f"Skipping low confidence detection: {confidence} < {self.confidence_threshold}")
-                                   continue
-                                   
                                x_min = float(obj.get("x_min", 0)) * img_width
                                y_min = float(obj.get("y_min", 0)) * img_height
                                x_max = float(obj.get("x_max", 1)) * img_width
                                y_max = float(obj.get("y_max", 1)) * img_height
                                threat = {
                                    "bbox": [x_min, y_min, x_max, y_max],
-                                   "confidence": confidence,
+                                   "confidence": float(obj.get("confidence", 1.0)),
                                    "type": threat_type["type"],
                                    "level": threat_type["level"],
                                    "timestamp": current_time
