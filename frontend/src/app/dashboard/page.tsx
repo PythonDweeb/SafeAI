@@ -309,7 +309,101 @@ export default function Dashboard() {
     localStorage.setItem('cameraAssignments', JSON.stringify(newAssignments));
   };
 
-  // Load saved camera assignments on mount
+  // Create a separate useEffect for simulating threat detection when no cameras are assigned
+  useEffect(() => {
+    // Only set up the simulation if no cameras have been assigned yet
+    const hasAssignedCameras = Object.values(cameraAssignments).some(Boolean);
+    
+    // Function to simulate random threat detection for demonstration purposes
+    const simulateThreatDetection = () => {
+      // Get all camera IDs for the current school
+      const allCameraIds = Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]);
+      if (allCameraIds.length === 0) return;
+      
+      // Randomly select a camera to "detect" a threat on
+      const randomCameraId = allCameraIds[Math.floor(Math.random() * allCameraIds.length)];
+      
+      // Randomly determine a threat status (or NORMAL)
+      const statuses: ('NORMAL' | 'HIGH' | 'MEDIUM' | 'LOW')[] = ['NORMAL', 'NORMAL', 'NORMAL', 'LOW', 'MEDIUM', 'HIGH'];
+      const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+      
+      // Update camera status state
+      setCameraStatuses(prev => ({
+        ...prev,
+        [randomCameraId]: randomStatus
+      }));
+      
+      // Update active threats state
+      setActiveThreats(prev => 
+        prev.map(threat => 
+          threat.cameraId === randomCameraId 
+            ? { ...threat, status: randomStatus, timestamp: 'Now' } 
+            : threat
+        )
+      );
+      
+      // Dispatch global event to update all components
+      const event = new CustomEvent('cameraStatusChanged', {
+        detail: { 
+          cameraId: randomCameraId, 
+          status: randomStatus,
+          timestamp: Date.now()
+        }
+      });
+      setTimeout(() => {
+        window.dispatchEvent(event);
+      }, 0);
+      
+      console.log(`Simulated ${randomStatus} threat for camera ${randomCameraId}`);
+      
+      // If not NORMAL, set a timeout to revert back to NORMAL
+      if (randomStatus !== 'NORMAL') {
+        setTimeout(() => {
+          setCameraStatuses(prev => ({
+            ...prev,
+            [randomCameraId]: 'NORMAL'
+          }));
+          
+          setActiveThreats(prev => 
+            prev.map(threat => 
+              threat.cameraId === randomCameraId 
+                ? { ...threat, status: 'NORMAL', timestamp: 'Now' } 
+                : threat
+            )
+          );
+          
+          const normalEvent = new CustomEvent('cameraStatusChanged', {
+            detail: { 
+              cameraId: randomCameraId, 
+              status: 'NORMAL',
+              timestamp: Date.now()
+            }
+          });
+          setTimeout(() => {
+            window.dispatchEvent(normalEvent);
+          }, 0);
+          
+          console.log(`Reverted camera ${randomCameraId} to NORMAL status`);
+        }, 3000); // Revert after 3 seconds
+      }
+    };
+    
+    // Set up simulation interval only if no cameras are assigned
+    let simulationInterval: NodeJS.Timeout | null = null;
+    if (!hasAssignedCameras) {
+      simulationInterval = setInterval(simulateThreatDetection, 5000); // Simulate every 5 seconds
+      console.log("Starting threat detection simulation (no cameras assigned)");
+    }
+    
+    return () => {
+      if (simulationInterval) {
+        clearInterval(simulationInterval);
+        console.log("Stopping threat detection simulation");
+      }
+    };
+  }, [selectedSchool, cameraAssignments]);
+
+  // Load saved camera assignments on mount - MODIFY THIS FOR SINGLE CAMERA PROCESSING APPROACH
   useEffect(() => {
     const savedAssignments = localStorage.getItem('cameraAssignments');
     const assignments = savedAssignments ? JSON.parse(savedAssignments) : {};
@@ -321,91 +415,46 @@ export default function Dashboard() {
       initialStatuses[cameraId] = 'NORMAL';
     });
     
-    // Try to get a default device for unassigned cameras
-    const getDefaultDevice = async () => {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(device => device.kind === 'videoinput');
-        // Take the first available device as default if any
-        const defaultDeviceId = videoDevices.length > 0 ? videoDevices[0].deviceId : null;
-        
-        // Register ALL cameras for processing, regardless of assignment
-        Object.keys(SCHOOL_CAMERA_INFO[selectedSchool]).forEach(async (cameraId) => {
-          // For assigned cameras, use their assigned device
-          if (assignments[cameraId]) {
-            await processingManager.registerCamera(
-              cameraId,
-              assignments[cameraId] as string,
-              (status) => {
-                setCameraStatuses(prev => ({
-                  ...prev,
-                  [cameraId]: status
-                }));
-                
-                // When status changes, update active threats immediately
-                setActiveThreats(prev => 
-                  prev.map(threat => 
-                    threat.cameraId === cameraId 
-                      ? { ...threat, status, timestamp: 'Now' } 
-                      : threat
-                  )
-                );
-                
-                // Dispatch a global event to make sure all components update
-                const event = new CustomEvent('cameraStatusChanged', {
-                  detail: { 
-                    cameraId, 
-                    status,
-                    timestamp: Date.now()
-                  }
-                });
-                setTimeout(() => {
-                  window.dispatchEvent(event);
-                }, 0);
-              }
+    // Only register cameras that actually have assigned devices
+    Object.entries(assignments).forEach(async ([cameraId, deviceId]) => {
+      if (deviceId) {
+        // Register the camera with the processing manager
+        await processingManager.registerCamera(
+          cameraId,
+          deviceId as string,
+          (status) => {
+            // When this camera detects a status change:
+            // 1. Update its own status
+            setCameraStatuses(prev => ({
+              ...prev,
+              [cameraId]: status
+            }));
+            
+            // 2. Update active threats immediately
+            setActiveThreats(prev => 
+              prev.map(threat => 
+                threat.cameraId === cameraId 
+                  ? { ...threat, status, timestamp: 'Now' } 
+                  : threat
+              )
             );
-          } 
-          // For unassigned cameras, if we have a default device, use it
-          else if (defaultDeviceId) {
-            await processingManager.registerCamera(
-              cameraId,
-              defaultDeviceId,
-              (status) => {
-                setCameraStatuses(prev => ({
-                  ...prev,
-                  [cameraId]: status
-                }));
-                
-                // Update active threats immediately
-                setActiveThreats(prev => 
-                  prev.map(threat => 
-                    threat.cameraId === cameraId 
-                      ? { ...threat, status, timestamp: 'Now' } 
-                      : threat
-                  )
-                );
-                
-                // Dispatch a global event
-                const event = new CustomEvent('cameraStatusChanged', {
-                  detail: { 
-                    cameraId, 
-                    status,
-                    timestamp: Date.now()
-                  }
-                });
-                setTimeout(() => {
-                  window.dispatchEvent(event);
-                }, 0);
+            
+            // 3. Dispatch a global event for all components
+            const event = new CustomEvent('cameraStatusChanged', {
+              detail: { 
+                cameraId, 
+                status,
+                timestamp: Date.now()
               }
-            );
+            });
+            setTimeout(() => {
+              window.dispatchEvent(event);
+            }, 0);
           }
-        });
-      } catch (error) {
-        console.error('Error getting default device:', error);
+        );
       }
-    };
+    });
     
-    getDefaultDevice();
     setCameraStatuses(initialStatuses);
   }, [selectedSchool]);
 
