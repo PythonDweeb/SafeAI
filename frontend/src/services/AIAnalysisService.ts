@@ -12,9 +12,9 @@ export interface AIAnalysisResponse {
 // AI Analysis Service - Singleton
 export class AIAnalysisService {
   private static instance: AIAnalysisService;
-  private apiKey: string | null = null;
+  private apiKey: string = 'AIzaSyAtEliIkJUDxAgGMrN91OEhFd2goK03-Bw'; // Hard-coded API key
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
-  private modelName = 'gemini-1.5-pro';
+  private modelName = 'gemini-2.0-flash'; // Updated to use gemini-2.0-flash
   
   private constructor() {}
   
@@ -25,34 +25,9 @@ export class AIAnalysisService {
     return AIAnalysisService.instance;
   }
   
-  public setApiKey(key: string): void {
-    this.apiKey = key;
-  }
-  
-  // Get the API key from environment or stored value
+  // Get the API key - now simply returns the hardcoded key
   private getApiKey(): string {
-    // Use environment variable if available (for server-side)
-    if (typeof process !== 'undefined' && process.env.GEMINI_API_KEY) {
-      return process.env.GEMINI_API_KEY;
-    }
-    
-    // Use stored key (for client-side)
-    if (this.apiKey) {
-      return this.apiKey;
-    }
-    
-    // Try to get from localStorage as fallback
-    if (typeof window !== 'undefined') {
-      const storedKey = localStorage.getItem('gemini_api_key');
-      if (storedKey) {
-        this.apiKey = storedKey;
-        return storedKey;
-      }
-    }
-    
-    // Return empty string if no key is available
-    console.warn('No Gemini API key found. Analysis functionality may be limited.');
-    return '';
+    return this.apiKey;
   }
   
   // Generate an analysis for a security threat situation
@@ -65,12 +40,6 @@ export class AIAnalysisService {
     schoolName: string
   ): Promise<AIAnalysisResponse> {
     try {
-      // Check if API key is available
-      const apiKey = this.getApiKey();
-      if (!apiKey) {
-        return this.getSimulatedResponse(cameraInfo, schoolName);
-      }
-      
       // Prepare the prompt for Gemini
       const prompt = `
         You are SafeAI's security analysis assistant. Analyze this security threat situation and provide recommendations:
@@ -95,7 +64,7 @@ export class AIAnalysisService {
       
       // Make the API call to Gemini
       const response = await axios.post(
-        `${this.baseUrl}/models/${this.modelName}:generateContent?key=${apiKey}`,
+        `${this.baseUrl}/models/${this.modelName}:generateContent?key=${this.apiKey}`,
         {
           contents: [
             {

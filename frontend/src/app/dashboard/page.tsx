@@ -114,8 +114,6 @@ export default function Dashboard() {
   // New state for AI analysis results
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResponse | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   
   const processingManager = CameraProcessingManager.getInstance();
   const aiAnalysisService = AIAnalysisService.getInstance();
@@ -225,6 +223,21 @@ export default function Dashboard() {
   const handleMarkerClick = (cameraId: string) => {
     // Only update the highlighted camera for path-finding
     setHighlightedCamera(cameraId);
+    
+    // Auto-trigger analysis when a camera is highlighted
+    const cameraInfo = getCameraInfo(selectedSchool, cameraId);
+    if (cameraInfo) {
+      setIsAnalyzing(true);
+      aiAnalysisService.analyzeSecurityThreat(cameraInfo, selectedSchool)
+        .then(result => {
+          setAiAnalysis(result);
+          setIsAnalyzing(false);
+        })
+        .catch(error => {
+          console.error('Error auto-analyzing threat:', error);
+          setIsAnalyzing(false);
+        });
+    }
   };
   
   // Handler for "View Camera" button in popup - shows the camera view
@@ -252,15 +265,6 @@ export default function Dashboard() {
       console.error('Error getting AI analysis:', error);
     } finally {
       setIsAnalyzing(false);
-    }
-  };
-  
-  // Function to save API key
-  const handleSaveApiKey = () => {
-    if (apiKeyInput.trim()) {
-      aiAnalysisService.setApiKey(apiKeyInput.trim());
-      localStorage.setItem('gemini_api_key', apiKeyInput.trim());
-      setShowApiKeyInput(false);
     }
   };
   
@@ -812,216 +816,189 @@ export default function Dashboard() {
                   
                   {/* AI Analysis Section - New */}
                   <div className="rounded-lg overflow-hidden shadow-lg border border-gray-200">
-                    <div className="bg-gradient-to-r from-gray-100 to-gray-50 px-3 py-2 border-b border-gray-200 flex items-center justify-between">
+                    <div className="bg-gradient-to-r from-teal-100 to-blue-100 px-3 py-2 border-b border-gray-200 flex items-center justify-between">
                       <div className="flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-teal-500 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-600 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                         </svg>
-                        <h3 className="text-sm font-medium text-gray-700">AI Threat Analysis</h3>
+                        <h3 className="text-base font-medium text-gray-800">AI Threat Analysis</h3>
                       </div>
                       
                       <div className="flex items-center space-x-2">
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-                          className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                        </motion.button>
-                        
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
                           onClick={handleRequestAnalysis}
                           disabled={isAnalyzing}
-                          className="p-1 text-teal-500 hover:text-teal-600 transition-colors"
+                          className="p-1.5 text-teal-600 hover:text-teal-800 transition-colors bg-white/60 rounded-full shadow-sm"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                           </svg>
                         </motion.button>
                       </div>
                     </div>
                     
-                    <div className="bg-white">
-                      {showApiKeyInput && (
+                    <div className="bg-white p-4">
+                      {isAnalyzing ? (
+                        <div className="flex flex-col items-center justify-center py-8">
+                          <div className="w-12 h-12 border-t-2 border-r-2 border-b-2 border-teal-500 rounded-full animate-spin mb-4"></div>
+                          <p className="text-sm text-gray-600 animate-pulse">Analyzing threat situation with Gemini AI...</p>
+                        </div>
+                      ) : aiAnalysis ? (
                         <motion.div 
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="p-4 border-b border-gray-100 bg-blue-50"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ 
+                            type: "spring", 
+                            stiffness: 300, 
+                            damping: 30,
+                            staggerChildren: 0.05,
+                            delayChildren: 0.1
+                          }}
+                          className="space-y-5"
                         >
-                          <div className="flex flex-col space-y-2">
-                            <label className="text-xs font-medium text-gray-700">Gemini API Key</label>
-                            <div className="flex space-x-2">
-                              <input 
-                                type="password"
-                                value={apiKeyInput}
-                                onChange={(e) => setApiKeyInput(e.target.value)}
-                                placeholder="Enter your Gemini API key"
-                                className="text-sm flex-1 px-3 py-2 rounded-md border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
-                              />
-                              <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={handleSaveApiKey}
-                                className="px-3 py-2 bg-blue-500 text-white rounded-md text-sm font-medium shadow-sm hover:bg-blue-600 transition-colors"
-                              >
-                                Save
-                              </motion.button>
-                            </div>
-                            <p className="text-xs text-gray-500">
-                              Your API key is stored locally and never sent to our servers.
-                            </p>
-                          </div>
-                        </motion.div>
-                      )}
-                      
-                      <div className="p-4">
-                        {isAnalyzing ? (
-                          <div className="flex flex-col items-center justify-center py-6">
-                            <div className="w-10 h-10 border-t-2 border-b-2 border-teal-500 rounded-full animate-spin mb-3"></div>
-                            <p className="text-sm text-gray-600">Analyzing threat situation...</p>
-                          </div>
-                        ) : aiAnalysis ? (
+                          {/* Analysis Header */}
                           <motion.div 
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ 
-                              type: "spring", 
-                              stiffness: 300, 
-                              damping: 30,
-                              staggerChildren: 0.05,
-                              delayChildren: 0.1
+                            variants={{
+                              hidden: { opacity: 0, y: 10 },
+                              visible: { opacity: 1, y: 0 }
                             }}
-                            className="space-y-4"
+                            className="bg-gradient-to-br from-teal-50 to-blue-50 rounded-xl p-5 shadow-inner"
                           >
-                            {/* Analysis Header */}
+                            <h4 className="font-medium text-gray-800 mb-3 flex items-center text-base">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              Situation Assessment
+                            </h4>
+                            <p className="text-sm text-gray-700 leading-relaxed">
+                              {aiAnalysis.analysis}
+                            </p>
+                          </motion.div>
+                          
+                          {/* Analysis Details */}
+                          <div className="grid grid-cols-2 gap-4">
                             <motion.div 
                               variants={{
                                 hidden: { opacity: 0, y: 10 },
                                 visible: { opacity: 1, y: 0 }
                               }}
-                              className="bg-gradient-to-br from-teal-50 to-blue-50 rounded-xl p-4 shadow-inner"
+                              className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow"
                             >
-                              <h4 className="font-medium text-gray-800 mb-2 flex items-center">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                Situation Assessment
-                              </h4>
-                              <p className="text-sm text-gray-700 leading-relaxed">
-                                {aiAnalysis.analysis}
-                              </p>
-                            </motion.div>
-                            
-                            {/* Analysis Details */}
-                            <div className="grid grid-cols-2 gap-3">
-                              <motion.div 
-                                variants={{
-                                  hidden: { opacity: 0, y: 10 },
-                                  visible: { opacity: 1, y: 0 }
-                                }}
-                                className="bg-white rounded-xl p-3 border border-gray-200 shadow-sm"
-                              >
-                                <div className="text-xs uppercase text-gray-500 font-medium mb-1">Response Time</div>
-                                <div className="text-lg font-semibold text-gray-800">{aiAnalysis.responseTime}</div>
-                              </motion.div>
-                              
-                              <motion.div 
-                                variants={{
-                                  hidden: { opacity: 0, y: 10 },
-                                  visible: { opacity: 1, y: 0 }
-                                }}
-                                className={`rounded-xl p-3 border shadow-sm ${
-                                  cameraStatuses[highlightedCamera || ''] === 'HIGH' ? 'bg-red-50 border-red-200 text-red-800' : 
-                                  cameraStatuses[highlightedCamera || ''] === 'MEDIUM' ? 'bg-orange-50 border-orange-200 text-orange-800' :
-                                  cameraStatuses[highlightedCamera || ''] === 'LOW' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
-                                  'bg-green-50 border-green-200 text-green-800'
-                                }`}
-                              >
-                                <div className="text-xs uppercase font-medium mb-1 opacity-80">Threat Level</div>
-                                <div className="text-base font-semibold">{cameraStatuses[highlightedCamera || '']}</div>
-                              </motion.div>
-                            </div>
-                            
-                            {/* Recommended Actions */}
-                            <motion.div 
-                              variants={{
-                                hidden: { opacity: 0, y: 10 },
-                                visible: { opacity: 1, y: 0 }
-                              }}
-                              className="rounded-xl border border-gray-200 overflow-hidden shadow-sm"
-                            >
-                              <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-2 border-b border-gray-200">
-                                <h4 className="font-medium text-gray-800 text-sm">Recommended Actions</h4>
-                              </div>
-                              <div className="divide-y divide-gray-100">
-                                {aiAnalysis.recommendedActions.map((action, index) => (
-                                  <motion.div 
-                                    key={index}
-                                    initial={{ opacity: 0, x: -10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: index * 0.1 }}
-                                    className="flex items-start p-3"
-                                  >
-                                    <div className="flex-shrink-0 h-5 w-5 rounded-full bg-teal-100 flex items-center justify-center mr-3 mt-0.5">
-                                      <span className="text-xs font-medium text-teal-700">{index + 1}</span>
-                                    </div>
-                                    <p className="text-sm text-gray-700">{action}</p>
-                                  </motion.div>
-                                ))}
-                              </div>
-                            </motion.div>
-                            
-                            {/* Analysis timestamp */}
-                            <motion.div 
-                              variants={{
-                                hidden: { opacity: 0 },
-                                visible: { opacity: 1 }
-                              }}
-                              className="flex justify-between items-center text-xs text-gray-500 pt-2"
-                            >
-                              <div className="flex items-center">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <div className="text-xs uppercase text-gray-500 font-medium mb-2">Response Time</div>
+                              <div className="text-xl font-semibold text-gray-800 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                Generated: {new Date(aiAnalysis.timestamp).toLocaleTimeString()}
-                              </div>
-                              <div>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-800">
-                                  AI Powered
-                                </span>
+                                {aiAnalysis.responseTime}
                               </div>
                             </motion.div>
-                          </motion.div>
-                        ) : (
-                          <div className="py-8 px-4 flex flex-col items-center justify-center text-center">
-                            <div className="rounded-full bg-gray-100 p-3 mb-3">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                              </svg>
-                            </div>
-                            <h4 className="text-gray-700 font-medium mb-2">No Analysis Available</h4>
-                            <p className="text-gray-500 text-sm mb-4">Click the refresh button to generate a real-time AI analysis of the current situation.</p>
-                            <motion.button
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={handleRequestAnalysis}
-                              className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm shadow-lg shadow-teal-500/20 transition-all flex items-center"
+                            
+                            <motion.div 
+                              variants={{
+                                hidden: { opacity: 0, y: 10 },
+                                visible: { opacity: 1, y: 0 }
+                              }}
+                              className={`rounded-xl p-4 border shadow-sm hover:shadow-md transition-shadow ${
+                                cameraStatuses[highlightedCamera || ''] === 'HIGH' ? 'bg-red-50 border-red-200 text-red-800' : 
+                                cameraStatuses[highlightedCamera || ''] === 'MEDIUM' ? 'bg-orange-50 border-orange-200 text-orange-800' :
+                                cameraStatuses[highlightedCamera || ''] === 'LOW' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
+                                'bg-green-50 border-green-200 text-green-800'
+                              }`}
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                              </svg>
-                              Generate AI Analysis
-                            </motion.button>
+                              <div className="text-xs uppercase font-medium mb-2 opacity-80">Threat Level</div>
+                              <div className="text-xl font-semibold flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                {cameraStatuses[highlightedCamera || '']}
+                              </div>
+                            </motion.div>
                           </div>
-                        )}
-                      </div>
+                          
+                          {/* Recommended Actions */}
+                          <motion.div 
+                            variants={{
+                              hidden: { opacity: 0, y: 10 },
+                              visible: { opacity: 1, y: 0 }
+                            }}
+                            className="rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+                          >
+                            <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-3 border-b border-gray-200">
+                              <h4 className="font-medium text-gray-800 text-base flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                                Recommended Actions
+                              </h4>
+                            </div>
+                            <div className="divide-y divide-gray-100">
+                              {aiAnalysis.recommendedActions.map((action, index) => (
+                                <motion.div 
+                                  key={index}
+                                  initial={{ opacity: 0, x: -10 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ delay: index * 0.15 }}
+                                  className="flex items-start p-4 hover:bg-gray-50 transition-colors"
+                                >
+                                  <div className="flex-shrink-0 h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center mr-3 mt-0.5 shadow-sm">
+                                    <span className="text-xs font-medium text-indigo-700">{index + 1}</span>
+                                  </div>
+                                  <p className="text-sm text-gray-700">{action}</p>
+                                </motion.div>
+                              ))}
+                            </div>
+                          </motion.div>
+                          
+                          {/* Analysis timestamp */}
+                          <motion.div 
+                            variants={{
+                              hidden: { opacity: 0 },
+                              visible: { opacity: 1 }
+                            }}
+                            className="flex justify-between items-center text-xs text-gray-500 pt-2"
+                          >
+                            <div className="flex items-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              Generated: {new Date(aiAnalysis.timestamp).toLocaleTimeString()}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                </svg>
+                                Gemini AI
+                              </span>
+                            </div>
+                          </motion.div>
+                        </motion.div>
+                      ) : (
+                        <div className="py-10 px-6 flex flex-col items-center justify-center text-center">
+                          <div className="rounded-full bg-teal-100 p-4 mb-5 shadow-inner">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                          </div>
+                          <h4 className="text-lg font-medium text-gray-800 mb-3">AI Analysis Ready</h4>
+                          <p className="text-gray-600 text-sm mb-5 max-w-md">
+                            Click the refresh button to generate a real-time AI analysis of the current situation using the Gemini API.
+                          </p>
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handleRequestAnalysis}
+                            className="px-5 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-lg font-medium shadow-lg shadow-teal-500/20 transition-all flex items-center"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                            Generate AI Analysis
+                          </motion.button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
