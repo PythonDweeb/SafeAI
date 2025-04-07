@@ -30,6 +30,7 @@ SafeAI provides a comprehensive solution for school safety by leveraging AI-powe
 - Moondream 2 model for image processing
 - PyTorch (CUDA-optimized)
 - Hardware acceleration for Apple Silicon (MPS), CUDA GPU, with CPU fallback
+- Misc: OpenCV, Pillow, HF-Transfer, Gemini
 
 ## Getting Started
 
