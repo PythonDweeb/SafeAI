@@ -2,6 +2,11 @@
 
 SafeAI is a school security system that uses computer vision to detect weapons in security camera feeds and alert authorities in real-time.
 
+## Demo
+
+- https://devpost.com/software/safeai
+- https://www.youtube.com/watch?v=fkReZUtE-ZI
+
 ## Overview
 
 SafeAI provides a comprehensive solution for school safety by leveraging AI-powered weapon detection to identify potential threats before they escalate. The system processes camera feeds in real-time, displaying alerts and threat information on an intuitive dashboard interface.
